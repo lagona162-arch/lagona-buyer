@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
@@ -9,6 +10,7 @@ import '../services/supabase_service.dart';
 import '../services/cart_service.dart';
 import '../theme/app_colors.dart';
 import '../models/cart_item.dart';
+import '../models/merchant.dart';
 import 'order_tracking_page.dart';
 import 'merchant_list_page.dart';
 
@@ -36,11 +38,14 @@ class _CheckoutPageState extends State<CheckoutPage> {
   bool _isPlacingOrder = false;
   bool _isLoading = true;
   Map<String, dynamic>? _customerData;
+  Merchant? _merchant;
+  double? _deliveryFee;
 
   @override
   void initState() {
     super.initState();
     _loadCustomerData();
+    _loadMerchantData();
   }
 
   @override
@@ -80,6 +85,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
           
           if (lat != null && lng != null) {
             _selectedLatLng = LatLng(lat, lng);
+            _calculateDeliveryFee();
           }
         });
       }
@@ -88,6 +94,66 @@ class _CheckoutPageState extends State<CheckoutPage> {
     } finally {
       setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _loadMerchantData() async {
+    final merchantId = widget.merchantId ?? _cartService.merchantId;
+    if (merchantId == null) return;
+
+    try {
+      final merchant = await _supabaseService.getMerchantById(merchantId);
+      if (merchant != null) {
+        setState(() {
+          _merchant = merchant;
+          _calculateDeliveryFee();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading merchant data: $e');
+    }
+  }
+
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const double r = 6371.0; 
+    final double dLat = _deg2rad(lat2 - lat1);
+    final double dLon = _deg2rad(lon2 - lon1);
+    final double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_deg2rad(lat1)) * math.cos(_deg2rad(lat2)) *
+        math.sin(dLon / 2) * math.sin(dLon / 2);
+    final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return r * c;
+  }
+
+  double _deg2rad(double deg) => deg * (math.pi / 180.0);
+
+  void _calculateDeliveryFee() {
+    if (_merchant == null || _selectedLatLng == null) {
+      setState(() => _deliveryFee = null);
+      return;
+    }
+
+    if (_merchant!.latitude == null || _merchant!.longitude == null) {
+      setState(() => _deliveryFee = null);
+      return;
+    }
+
+    final distance = _calculateDistance(
+      _merchant!.latitude!,
+      _merchant!.longitude!,
+      _selectedLatLng!.latitude,
+      _selectedLatLng!.longitude,
+    );
+
+    
+    double fee = 55.0; 
+    if (distance > 1.0) {
+      final additionalKm = (distance - 1.0).ceil(); 
+      fee += additionalKm * 10.0;
+    }
+
+    setState(() {
+      _deliveryFee = fee;
+    });
   }
 
   Future<void> _fetchAutocomplete(String input) async {
@@ -147,6 +213,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
           _searchController.text = _selectedAddress!;
           _predictions = [];
         });
+        _calculateDeliveryFee();
         
         if (_mapController != null) {
           await _mapController!.animateCamera(
@@ -196,12 +263,13 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
       final latLng = LatLng(position.latitude, position.longitude);
       
-      // Reverse geocode to get address
+      
       await _reverseGeocode(latLng);
       
       setState(() {
         _selectedLatLng = latLng;
       });
+      _calculateDeliveryFee();
 
       if (_mapController != null) {
         await _mapController!.animateCamera(
@@ -277,7 +345,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
     setState(() => _isPlacingOrder = true);
 
     try {
-      // Update customer address if changed
+      
       final address = _addressController.text.trim();
       if (address.isNotEmpty && _selectedLatLng != null) {
         await _supabaseService.updateCustomerAddress(
@@ -288,7 +356,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
         );
       }
 
-      // Create order with delivery notes
+      
       final merchantId = widget.merchantId ?? _cartService.merchantId;
       if (merchantId == null) {
         throw Exception('Merchant ID is required');
@@ -307,9 +375,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
         deliveryLatitude: _selectedLatLng!.latitude,
         deliveryLongitude: _selectedLatLng!.longitude,
         deliveryNotes: _notesController.text.trim(),
+        deliveryFee: _deliveryFee,
       );
 
-      // Clear cart after successful order
+      
       _cartService.clear();
 
       if (mounted) {
@@ -435,7 +504,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
           listenable: _cartService,
           builder: (context, _) {
             final items = _cartService.items;
-            final total = _cartService.totalCents;
+            final subtotal = _cartService.totalCents;
+            final deliveryFeeCents = (_deliveryFee ?? 0.0) * 100;
+            final total = subtotal + deliveryFeeCents.toInt();
 
             return Column(
               children: [
@@ -446,7 +517,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Delivery Address Section
+                        
                         Text(
                           'Delivery Address',
                           style: TextStyle(
@@ -457,7 +528,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         ),
                         const SizedBox(height: 12),
                         
-                        // Address Search Field
+                        
                         TextFormField(
                           controller: _searchController,
                           decoration: InputDecoration(
@@ -477,7 +548,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                           },
                         ),
                         
-                        // Autocomplete suggestions
+                        
                         if (_predictions.isNotEmpty)
                           Container(
                             margin: const EdgeInsets.only(top: 8),
@@ -513,7 +584,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         
                         const SizedBox(height: 16),
                         
-                        // Selected Address Display
+                        
                         TextFormField(
                           controller: _addressController,
                           decoration: InputDecoration(
@@ -535,12 +606,13 @@ class _CheckoutPageState extends State<CheckoutPage> {
                             setState(() {
                               _selectedAddress = value;
                             });
+                            
                           },
                         ),
                         
                         const SizedBox(height: 24),
                         
-                        // Location Notes/Identification
+                        
                         Text(
                           'Location Notes / Identification',
                           style: TextStyle(
@@ -574,7 +646,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         
                         const SizedBox(height: 24),
                         
-                        // Map Preview
+                        
                         if (_selectedLatLng != null)
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -625,7 +697,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         
                         const SizedBox(height: 24),
                         
-                        // Order Summary
+                        
                         Text(
                           'Order Summary',
                           style: TextStyle(
@@ -670,6 +742,52 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                       ),
                                     )),
                                 const Divider(),
+                                
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'Subtotal',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                    Text(
+                                      '₱${(subtotal / 100).toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'Delivery Fee',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                    Text(
+                                      _deliveryFee != null
+                                          ? '₱${_deliveryFee!.toStringAsFixed(2)}'
+                                          : 'Calculating...',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                const Divider(),
+                                
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
@@ -682,7 +800,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                       ),
                                     ),
                                     Text(
-                                      '₱${(total / 100).toStringAsFixed(2)}',
+                                      _deliveryFee != null
+                                          ? '₱${(total / 100).toStringAsFixed(2)}'
+                                          : 'Calculating...',
                                       style: TextStyle(
                                         fontSize: 20,
                                         fontWeight: FontWeight.bold,
@@ -699,7 +819,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                     ),
                   ),
                 ),
-                // Place Order Button
+                
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(

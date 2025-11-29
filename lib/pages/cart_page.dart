@@ -94,7 +94,7 @@ class _CartPageState extends State<CartPage> {
                   },
                 ),
               ),
-              // Checkout section
+              
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
@@ -111,7 +111,7 @@ class _CartPageState extends State<CartPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Order summary
+                      
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -173,7 +173,7 @@ class _CartPageState extends State<CartPage> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Item image/icon
+            
             Container(
               width: 70,
               height: 70,
@@ -201,7 +201,7 @@ class _CartPageState extends State<CartPage> {
                     ),
             ),
             const SizedBox(width: 16),
-            // Item details
+            
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -238,7 +238,7 @@ class _CartPageState extends State<CartPage> {
                           color: AppColors.primary,
                         ),
                       ),
-                      // Quantity controls
+                      
                       Row(
                         children: [
                           Material(
@@ -320,7 +320,7 @@ class _CartPageState extends State<CartPage> {
                 ],
               ),
             ),
-            // Remove button
+            
             IconButton(
               icon: Icon(
                 Icons.delete_outline,
@@ -354,7 +354,7 @@ class _CartPageState extends State<CartPage> {
       return;
     }
 
-    // Navigate to checkout page
+    
     Navigator.of(context).pushNamed(
       CheckoutPage.routeName,
       arguments: merchantId,

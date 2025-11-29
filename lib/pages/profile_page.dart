@@ -36,7 +36,7 @@ class _ProfilePageState extends State<ProfilePage> {
             .eq('id', user.id)
             .single();
         
-        // Also get customer address data
+        
         try {
           final customerData = await Supabase.instance.client
               .from('customers')
@@ -50,7 +50,7 @@ class _ProfilePageState extends State<ProfilePage> {
             response['longitude'] = customerData['longitude'];
           }
         } catch (_) {
-          // Customer data might not exist yet
+          
         }
         
         setState(() {
@@ -114,7 +114,7 @@ class _ProfilePageState extends State<ProfilePage> {
       backgroundColor: AppColors.background,
       body: CustomScrollView(
         slivers: [
-          // App Bar
+          
           SliverAppBar(
             expandedHeight: 200,
             floating: false,
@@ -190,7 +190,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ),
           ),
-          // Content
+          
           SliverToBoxAdapter(
             child: _isLoading
                 ? const Padding(
@@ -202,7 +202,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Edit Profile Section
+                        
                         _buildSectionCard(
                           title: 'Account Settings',
                           icon: Icons.person_outline,
@@ -222,7 +222,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ],
                         ),
                         const SizedBox(height: 20),
-                        // Personal Information
+                        
                         _buildSectionCard(
                           title: 'Personal Information',
                           icon: Icons.info_outline,
@@ -241,7 +241,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ],
                         ),
                         const SizedBox(height: 20),
-                        // Order & Activity
+                        
                         _buildSectionCard(
                           title: 'Orders & Activity',
                           icon: Icons.shopping_bag_outlined,
@@ -265,7 +265,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ],
                         ),
                         const SizedBox(height: 20),
-                        // Help & Support
+                        
                         _buildSectionCard(
                           title: 'Help & Support',
                           icon: Icons.help_outline,
@@ -298,7 +298,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ],
                         ),
                         const SizedBox(height: 20),
-                        // Sign Out Button
+                        
                         SizedBox(
                           width: double.infinity,
                           child: OutlinedButton.icon(
@@ -443,17 +443,17 @@ class _ProfilePageState extends State<ProfilePage> {
       MaterialPageRoute(
         builder: (context) => const EditProfilePage(),
       ),
-    ).then((_) => _loadUserData()); // Refresh data after returning
+    ).then((_) => _loadUserData()); 
   }
 
   void _navigateToEditAddress() {
     Navigator.of(context).pushNamed(CustomerRegistrationPage.routeName).then(
-      (_) => _loadUserData(), // Refresh data after returning
+      (_) => _loadUserData(), 
     );
   }
 }
 
-// Edit Profile Page
+
 class EditProfilePage extends StatefulWidget {
   const EditProfilePage({super.key});
 
@@ -498,7 +498,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
             try {
               _selectedBirthdate = DateTime.parse(response['birthdate']);
             } catch (_) {
-              // Invalid date format
+              
             }
           }
           _isLoading = false;
@@ -573,7 +573,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         updateData['birthdate'] = _selectedBirthdate!.toIso8601String().split('T')[0];
       }
 
-      // Update full_name
+      
       final fullName = '${_firstNameController.text.trim()}${_middleInitialController.text.trim().isNotEmpty ? ' ${_middleInitialController.text.trim()}' : ''} ${_lastNameController.text.trim()}';
       updateData['full_name'] = fullName.trim();
 

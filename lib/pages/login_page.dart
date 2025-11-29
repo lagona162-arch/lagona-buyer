@@ -25,12 +25,10 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
-    debugPrint('🚀 [LoginPage] initState called');
   }
 
   @override
   void dispose() {
-    debugPrint('🚀 [LoginPage] dispose called');
     emailController.dispose();
     passwordController.dispose();
     super.dispose();
@@ -67,10 +65,10 @@ class _LoginPageState extends State<LoginPage> {
       
       if (!mounted) return;
       
-      // Check if user has customer role
+      
       final user = response.user;
       if (user != null) {
-        // Get user role from database
+        
         final userData = await Supabase.instance.client
             .from('users')
             .select('role')
@@ -79,7 +77,7 @@ class _LoginPageState extends State<LoginPage> {
         
         final role = userData?['role'] as String?;
         if (role != 'customer') {
-          // Sign out if not a customer
+          
           await Supabase.instance.client.auth.signOut();
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
@@ -109,7 +107,6 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('🚀 [LoginPage] build() called');
     try {
     return Stack(
       children: [
@@ -125,7 +122,7 @@ class _LoginPageState extends State<LoginPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const SizedBox(height: 40),
-                      // Hero Section
+                      
                       Column(
                         children: [
                           Container(
@@ -178,7 +175,7 @@ class _LoginPageState extends State<LoginPage> {
                         ],
                       ),
                       const SizedBox(height: 48),
-                      // Form Fields
+                      
                       TextFormField(
                         controller: emailController,
                         keyboardType: TextInputType.emailAddress,
@@ -217,12 +214,12 @@ class _LoginPageState extends State<LoginPage> {
                         validator: _validatePassword,
                       ),
                       const SizedBox(height: 16),
-                      // Forgot Password (optional - can be added later)
+                      
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
                           onPressed: () {
-                            // TODO: Implement forgot password
+                            
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text('Forgot password feature coming soon'),
@@ -246,7 +243,7 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
                       const SizedBox(height: 32),
-                      // Submit Button
+                      
                       ElevatedButton(
                         onPressed: isLoading ? null : submit,
                         style: ElevatedButton.styleFrom(
@@ -276,7 +273,7 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                       ),
                       const SizedBox(height: 24),
-                      // Divider
+                      
                       Row(
                         children: [
                           Expanded(child: Divider(color: AppColors.border)),
@@ -295,7 +292,7 @@ class _LoginPageState extends State<LoginPage> {
                         ],
                       ),
                       const SizedBox(height: 24),
-                      // Register Link
+                      
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -335,9 +332,7 @@ class _LoginPageState extends State<LoginPage> {
       ],
     );
     } catch (e, stackTrace) {
-      debugPrint('❌ [LoginPage] FAILED: Error building widget: $e');
-      debugPrint('Stack trace: $stackTrace');
-      // Return a simple error widget instead of crashing
+      
       return Scaffold(
         body: Center(
           child: Column(

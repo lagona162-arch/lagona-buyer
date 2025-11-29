@@ -28,8 +28,8 @@ class _MerchantListPageState extends State<MerchantListPage> {
   late Future<Map<String, dynamic>?> _userDataFuture;
   int _currentPage = 0;
   static const int _itemsPerPage = 10;
-  bool _isHorizontalScroll = false; // User preference for scroll direction
-  String _sortBy = 'alphabetical'; // 'alphabetical' or 'nearest'
+  bool _isHorizontalScroll = false; 
+  String _sortBy = 'alphabetical'; 
   Position? _userPosition;
   List<Merchant> _sortedMerchants = [];
 
@@ -74,7 +74,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
   }
 
   double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const double r = 6371.0; // Earth radius in km
+    const double r = 6371.0; 
     final double dLat = _deg2rad(lat2 - lat1);
     final double dLon = _deg2rad(lon2 - lon1);
     final double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
@@ -133,27 +133,24 @@ class _MerchantListPageState extends State<MerchantListPage> {
         debugPrint('Order ID: ${delivery['id']}, Status: $status');
       }
       
-      // Filter for active orders (pending, accepted, assigned, picked_up, in_transit, on_the_way)
-      final activeOrders = allDeliveries.where((d) {
+      
+      
+      final ongoingOrders = allDeliveries.where((d) {
         final statusRaw = d['status'];
         final status = (statusRaw?.toString().toLowerCase() ?? '').trim();
-        final isActive = status == 'pending' || 
-               status == 'accepted' ||
-               status == 'assigned' || 
-               status == 'picked_up' || 
-               status == 'in_transit' ||
-               status == 'picked up' ||
-               status == 'in transit' ||
-               status == 'on_the_way' ||
-               status == 'on the way';
-        if (isActive) {
-          debugPrint('Found active order: ${d['id']} with status: $status');
+        
+        final isCompleted = status == 'delivered' || status == 'completed';
+        final isCancelled = status == 'cancelled';
+        
+        final isOngoing = !isCompleted && !isCancelled;
+        if (isOngoing) {
+          debugPrint('Found ongoing order: ${d['id']} with status: $status');
         }
-        return isActive;
+        return isOngoing;
       }).toList();
       
-      debugPrint('Active orders count: ${activeOrders.length}');
-      return activeOrders;
+      debugPrint('Ongoing orders count: ${ongoingOrders.length}');
+      return ongoingOrders;
     } catch (e) {
       debugPrint('Error loading active orders: $e');
       return [];
@@ -202,6 +199,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
     required String label,
     required Color color,
     required VoidCallback onTap,
+    int? badgeCount,
   }) {
     return InkWell(
       onTap: onTap,
@@ -215,6 +213,9 @@ class _MerchantListPageState extends State<MerchantListPage> {
         ),
         child: Column(
           children: [
+            Stack(
+              clipBehavior: Clip.none,
+          children: [
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -222,6 +223,37 @@ class _MerchantListPageState extends State<MerchantListPage> {
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: color, size: 24),
+                ),
+                
+                if (badgeCount != null && badgeCount > 0)
+                  Positioned(
+                    top: -4,
+                    right: -4,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 20,
+                        minHeight: 20,
+                      ),
+                      child: Center(
+                        child: Text(
+                          badgeCount > 99 ? '99+' : '$badgeCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 8),
             Text(
@@ -359,7 +391,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
   }
 
   Widget _buildMerchantCard(Merchant m, {bool isGrid = false}) {
-    // Calculate distance for all cards when nearest sorting is active
+    
     double? distance;
     if (_sortBy == 'nearest' && _userPosition != null && m.latitude != null && m.longitude != null) {
       distance = _calculateDistance(
@@ -371,7 +403,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
     }
     
     if (isGrid) {
-      // Grid card (2 columns)
+      
 
       return Card(
         elevation: 2,
@@ -389,7 +421,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Icon
+                
                 Container(
                   width: double.infinity,
                   height: 80,
@@ -404,7 +436,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Name
+                
                 Text(
                   m.name,
                   style: const TextStyle(
@@ -416,7 +448,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
-                // Distance (always show when nearest filter is active) or Address
+                
                 if (distance != null)
                   Row(
                     children: [
@@ -468,7 +500,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
         ),
       );
     } else {
-      // List card (horizontal scroll)
+      
       return SizedBox(
         width: 280,
         child: Card(
@@ -573,7 +605,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
       onTap: () {
         setState(() {
           _sortBy = value;
-          _currentPage = 0; // Reset to first page when sorting changes
+          _currentPage = 0; 
         });
         if (value == 'nearest' && _userPosition == null) {
           _getUserLocation();
@@ -628,9 +660,9 @@ class _MerchantListPageState extends State<MerchantListPage> {
     try {
       final date = DateTime.parse(dateString);
       final now = DateTime.now();
-      final difference = date.difference(now); // Reverse to get positive value
+      final difference = date.difference(now); 
       
-      // If date is in the future, show absolute time
+      
       if (difference.isNegative) {
         final absDifference = now.difference(date);
         if (absDifference.inMinutes < 60) {
@@ -643,7 +675,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
           return DateFormat('MMM dd').format(date);
         }
       } else {
-        // Date is in the future - show it as is
+        
         return DateFormat('MMM dd, yyyy').format(date);
       }
     } catch (e) {
@@ -663,13 +695,13 @@ class _MerchantListPageState extends State<MerchantListPage> {
                 _future = _service.getMerchants();
                 _profileCompleteFuture = _checkProfileComplete();
                 _loadData();
-                _currentPage = 0; // Reset to first page
+                _currentPage = 0; 
               });
               await Future.wait([_future, _profileCompleteFuture, _activeOrdersFuture, _userDataFuture]);
             },
             child: CustomScrollView(
             slivers: [
-              // Custom App Bar with branding
+              
               SliverAppBar(
                 expandedHeight: 140,
                 floating: false,
@@ -757,7 +789,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
                   ),
                 ),
               ),
-              // Welcome Section & Quick Actions
+              
               SliverToBoxAdapter(
                 child: FutureBuilder<Map<String, dynamic>?>(
                   future: _userDataFuture,
@@ -787,15 +819,22 @@ class _MerchantListPageState extends State<MerchantListPage> {
                             ),
                           ),
                           const SizedBox(height: 20),
-                          // Quick Actions
+                          
                           Row(
                             children: [
                               Expanded(
-                                child: _buildQuickActionCard(
+                                child: FutureBuilder<List<Map<String, dynamic>>>(
+                                  future: _activeOrdersFuture,
+                                  builder: (context, snapshot) {
+                                    final ongoingCount = (snapshot.data ?? []).length;
+                                    return _buildQuickActionCard(
                                   icon: Icons.history,
                                   label: 'Orders',
                                   color: Colors.blue,
+                                      badgeCount: ongoingCount > 0 ? ongoingCount : null,
                                   onTap: () => Navigator.of(context).pushNamed(OrderHistoryPage.routeName),
+                                    );
+                                  },
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -816,7 +855,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
                                             arguments: firstOrder['id'] as String,
                                           );
                                         } else {
-                                          // No active orders - go to pending tab
+                                          
                                           Navigator.of(context).push(
                                             MaterialPageRoute(
                                               builder: (context) => const OrderHistoryPage(initialTabIndex: 1),
@@ -845,7 +884,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
                   },
                 ),
               ),
-              // Active Orders Section
+              
               SliverToBoxAdapter(
                 child: FutureBuilder<List<Map<String, dynamic>>>(
                   future: _activeOrdersFuture,
@@ -892,13 +931,13 @@ class _MerchantListPageState extends State<MerchantListPage> {
                   },
                 ),
               ),
-              // Content
+              
               SliverToBoxAdapter(
                 child: FutureBuilder<List<Merchant>>(
             future: _future,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
-                // Don't show loading overlay for merchant list - it's fast enough
+                
                 return const SizedBox(
                   height: 400,
                   child: Center(
@@ -976,7 +1015,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
                         ),
                       );
                     }
-                    // Sort merchants based on selected filter
+                    
                     final sortedItems = _sortMerchants(items);
                     final totalPages = (sortedItems.length / _itemsPerPage).ceil();
                     final startIndex = _currentPage * _itemsPerPage;
@@ -988,7 +1027,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Header with scroll direction toggle and sort filter
+                          
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                             child: Column(
@@ -1018,14 +1057,14 @@ class _MerchantListPageState extends State<MerchantListPage> {
                                       onPressed: () {
                                         setState(() {
                                           _isHorizontalScroll = !_isHorizontalScroll;
-                                          _currentPage = 0; // Reset to first page when switching
+                                          _currentPage = 0; 
                                         });
                                       },
                                     ),
                                   ],
                                 ),
                                 const SizedBox(height: 12),
-                                // Sort filter buttons
+                                
                                 Row(
                                   children: [
                                     Expanded(
@@ -1048,7 +1087,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
                               ],
                             ),
                           ),
-                          // Merchant list - horizontal or vertical
+                          
                           _isHorizontalScroll
                               ? SizedBox(
                                   height: 120,
@@ -1079,7 +1118,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
                                     return _buildMerchantCard(m, isGrid: true);
                                   },
                                 ),
-                          // Pagination controls
+                          
                           if (totalPages > 1)
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -1117,7 +1156,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
                                 ],
                               ),
                             ),
-                          const SizedBox(height: 80), // Space for FAB
+                          const SizedBox(height: 80), 
                         ],
                       ),
                     );
@@ -1131,14 +1170,14 @@ class _MerchantListPageState extends State<MerchantListPage> {
             future: _profileCompleteFuture,
             builder: (context, snapshot) {
               final isComplete = snapshot.data ?? false;
-              // Only show FAB if profile is incomplete
+              
               if (isComplete) {
                 return const SizedBox.shrink();
               }
               return FloatingActionButton.extended(
                 onPressed: () async {
                   await Navigator.of(context).pushNamed(CustomerRegistrationPage.routeName);
-                  // Refresh profile status when returning
+                  
                   _refreshProfileStatus();
                 },
                 backgroundColor: AppColors.primary,

@@ -68,7 +68,7 @@ class _RegisterPageState extends State<RegisterPage> {
   Future<void> _selectBirthdate() async {
     final DateTime now = DateTime.now();
     final DateTime firstDate = DateTime(now.year - 100);
-    final DateTime lastDate = DateTime(now.year - 13); // At least 13 years old
+    final DateTime lastDate = DateTime(now.year - 13); 
     
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -92,7 +92,7 @@ class _RegisterPageState extends State<RegisterPage> {
     
     setState(() => isLoading = true);
     
-    // Debug: Log registration attempt details
+    
     debugPrint('=== Registration Attempt ===');
     debugPrint('Email: ${emailController.text.trim()}');
     debugPrint('Password length: ${passwordController.text.length}');
@@ -117,17 +117,17 @@ class _RegisterPageState extends State<RegisterPage> {
       debugPrint('✅ Registration successful!');
       
       if (!mounted) return;
-      // After auth registration, continue to customer address registration
+      
       Navigator.of(context).pushReplacementNamed(CustomerRegistrationPage.routeName);
     } catch (e, stackTrace) {
-      // Comprehensive error logging
+      
       debugPrint('❌ Registration Error Occurred:');
       debugPrint('Error type: ${e.runtimeType}');
       debugPrint('Error message: ${e.toString()}');
       debugPrint('Error details: $e');
       debugPrint('Stack trace: $stackTrace');
       
-      // Try to extract more details if it's a Supabase error
+      
       if (e.toString().contains('password') || e.toString().contains('Password')) {
         debugPrint('🔒 Password-related error detected');
         debugPrint('Password constraints might be violated');
@@ -135,7 +135,7 @@ class _RegisterPageState extends State<RegisterPage> {
       
       if (!mounted) return;
       
-      // Show user-friendly error message
+      
       String errorMessage = e.toString().replaceAll('Exception: ', '');
       if (errorMessage.contains('password')) {
         errorMessage = 'Password does not meet requirements. Please check the password rules.';
@@ -222,7 +222,7 @@ class _RegisterPageState extends State<RegisterPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const SizedBox(height: 20),
-                      // Hero Section
+                      
                       Column(
                         children: [
                           Container(
@@ -259,7 +259,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         ],
                       ),
                       const SizedBox(height: 32),
-                      // Benefits Section
+                      
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -291,7 +291,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         ),
                       ),
                       const SizedBox(height: 32),
-                      // Form Fields
+                      
                       TextFormField(
                         controller: firstNameController,
                         textInputAction: TextInputAction.next,
@@ -385,15 +385,15 @@ class _RegisterPageState extends State<RegisterPage> {
                           helperStyle: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                         ),
                         validator: _validatePassword,
-                        onChanged: (value) => setState(() {}), // Trigger rebuild for password strength
+                        onChanged: (value) => setState(() {}), 
                       ),
-                      // Password Strength Indicator
+                      
                       if (passwordController.text.isNotEmpty) ...[
                         const SizedBox(height: 8),
                         _buildPasswordStrengthIndicator(),
                       ],
                       const SizedBox(height: 32),
-                      // Submit Button
+                      
                       ElevatedButton(
                         onPressed: isLoading ? null : submit,
                         style: ElevatedButton.styleFrom(
@@ -418,7 +418,7 @@ class _RegisterPageState extends State<RegisterPage> {
                               ),
                       ),
                       const SizedBox(height: 16),
-                      // Login Link
+                      
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [

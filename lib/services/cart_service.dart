@@ -19,14 +19,14 @@ class CartService extends ChangeNotifier {
 
   bool get isEmpty => _items.isEmpty;
 
-  /// Check if cart is for a different merchant
+  
   bool isDifferentMerchant(String merchantId) {
     return _merchantId != null && _merchantId != merchantId;
   }
 
-  /// Add item to cart or increment quantity if already exists
+  
   void addItem(MenuItem menuItem, {int quantity = 1}) {
-    // If cart has items from a different merchant, clear it first
+    
     if (isDifferentMerchant(menuItem.merchantId)) {
       _items.clear();
       _merchantId = menuItem.merchantId;
@@ -39,10 +39,10 @@ class CartService extends ChangeNotifier {
     );
 
     if (existingIndex >= 0) {
-      // Item exists, increase quantity
+      
       _items[existingIndex].quantity += quantity;
     } else {
-      // New item, add to cart
+      
       _items.add(CartItem(
         menuItemId: menuItem.id,
         name: menuItem.name,
@@ -56,7 +56,7 @@ class CartService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Update item quantity
+  
   void updateQuantity(String menuItemId, int quantity) {
     if (quantity <= 0) {
       removeItem(menuItemId);
@@ -70,7 +70,7 @@ class CartService extends ChangeNotifier {
     }
   }
 
-  /// Remove item from cart
+  
   void removeItem(String menuItemId) {
     _items.removeWhere((item) => item.menuItemId == menuItemId);
     if (_items.isEmpty) {
@@ -79,14 +79,14 @@ class CartService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Clear entire cart
+  
   void clear() {
     _items.clear();
     _merchantId = null;
     notifyListeners();
   }
 
-  /// Get item by menu item ID
+  
   CartItem? getItem(String menuItemId) {
     try {
       return _items.firstWhere((item) => item.menuItemId == menuItemId);
@@ -95,7 +95,7 @@ class CartService extends ChangeNotifier {
     }
   }
 
-  /// Get quantity of specific item
+  
   int getItemQuantity(String menuItemId) {
     final item = getItem(menuItemId);
     return item?.quantity ?? 0;

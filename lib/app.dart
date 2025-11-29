@@ -18,9 +18,6 @@ class BuyerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('🚀 [BuyerApp] Building MaterialApp...');
-    try {
-      debugPrint('🚀 [BuyerApp] Creating MaterialApp widget...');
     return MaterialApp(
       title: 'Lagona Buyer',
       debugShowCheckedModeBanner: false,
@@ -92,7 +89,6 @@ class BuyerApp extends StatelessWidget {
         CheckoutPage.routeName: (context) {
           final merchantId = ModalRoute.of(context)?.settings.arguments as String?;
           if (merchantId == null) {
-            // Fallback to merchant list if no merchantId provided
             return const MerchantListPage();
           }
           return CheckoutPage(merchantId: merchantId);
@@ -100,7 +96,6 @@ class BuyerApp extends StatelessWidget {
         OrderTrackingPage.routeName: (context) {
           final orderId = ModalRoute.of(context)?.settings.arguments as String?;
           if (orderId == null) {
-            // Fallback to merchant list if no orderId provided
             return const MerchantListPage();
           }
           return OrderTrackingPage(orderId: orderId);
@@ -108,7 +103,6 @@ class BuyerApp extends StatelessWidget {
         FindingRiderPage.routeName: (context) {
           final orderId = ModalRoute.of(context)?.settings.arguments as String?;
           if (orderId == null) {
-            // Fallback to merchant list if no orderId provided
             return const MerchantListPage();
           }
           return FindingRiderPage(orderId: orderId);
@@ -122,11 +116,6 @@ class BuyerApp extends StatelessWidget {
         },
       },
     );
-    } catch (e, stackTrace) {
-      debugPrint('❌ [BuyerApp] FAILED: Error building MaterialApp: $e');
-      debugPrint('Stack trace: $stackTrace');
-      rethrow;
-    }
   }
 }
 

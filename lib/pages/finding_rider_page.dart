@@ -49,13 +49,13 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 	}
 
 	Future<Position> _getCurrentPosition() async {
-		// Check location service
+		
 		bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
 		if (!serviceEnabled) {
 			throw Exception('Location services are disabled. Please enable location services.');
 		}
 		
-		// Check and request permission only if needed
+		
 		LocationPermission permission = await Geolocator.checkPermission();
 		if (permission == LocationPermission.denied) {
 			permission = await Geolocator.requestPermission();
@@ -92,7 +92,7 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 				_statusText = 'Rider found! Assigning to delivery...';
 			});
 			
-			// Assign rider to delivery
+			
 			try {
 				await _supabaseService.assignRiderToDelivery(
 					deliveryId: widget.orderId,
@@ -104,7 +104,7 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 					_statusText = 'Rider assigned! Starting tracking...';
 				});
 				
-				// Navigate to tracking
+				
 				await Future<void>.delayed(const Duration(milliseconds: 400));
 				if (!mounted) return;
 				Navigator.of(context).pushReplacementNamed(

@@ -37,20 +37,20 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
   LatLng? _riderLocation;
   LatLng? _userLocation;
   Timer? _updateTimer;
+  Timer? _paymentStatusTimer;
   bool _isLoading = true;
   String? _errorMessage;
   List<LatLng>? _routePoints;
   final ImagePicker _imagePicker = ImagePicker();
   
-  // ETA related
-  int? _etaSeconds; // Estimated time in seconds
+  int? _etaSeconds;
   DateTime? _estimatedArrival;
   String _etaText = 'Calculating...';
   Timer? _etaTimer;
   
-  // Payment tracking
   bool _paymentRequestShown = false;
   bool _hasSubmittedPayment = false;
+  bool _isPaymentApproved = false;
 
   @override
   void initState() {
@@ -58,9 +58,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
     if (widget.orderId != null) {
       _loadDelivery();
       _getUserLocation();
-      // Check payment status on initial load
       _checkPaymentStatus();
-      // Start polling - will adjust interval based on status
       _startPolling();
     } else {
       setState(() {
@@ -72,12 +70,6 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
   
   void _startPolling() {
     _updateTimer?.cancel();
-    // Poll more frequently when:
-    // - Waiting for merchant confirmation (pending)
-    // - Order accepted but rider not assigned yet
-    // - Rider assigned but payment not requested yet
-    // - Payment requested but not submitted
-    // Less frequently when payment submitted or rider tracking (every 10 seconds)
     final status = _delivery?['status']?.toString().toLowerCase() ?? 'pending';
     final hasRider = _delivery?['rider_id'] != null ?? false;
     final paymentRequested = _delivery?['payment_requested'] == true;
@@ -90,12 +82,33 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       _loadDelivery();
       _getUserLocation();
     });
+    
+    _startPaymentStatusPolling();
+  }
+  
+  void _startPaymentStatusPolling() {
+    _paymentStatusTimer?.cancel();
+    
+    if (_hasSubmittedPayment && !_isPaymentApproved) {
+      _paymentStatusTimer = Timer.periodic(const Duration(seconds: 3), (_) async {
+        if (!mounted) return;
+        await _checkPaymentStatus();
+        
+        if (_isPaymentApproved) {
+          _paymentStatusTimer?.cancel();
+          _loadDelivery();
+        }
+      });
+    } else {
+      _paymentStatusTimer?.cancel();
+    }
   }
 
   @override
   void dispose() {
     _updateTimer?.cancel();
     _etaTimer?.cancel();
+    _paymentStatusTimer?.cancel();
     mapController?.dispose();
     super.dispose();
   }
@@ -116,7 +129,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         return;
       }
 
-      // Extract locations
+      
       final pickupLat = delivery['pickup_latitude'] as double?;
       final pickupLng = delivery['pickup_longitude'] as double?;
       final dropoffLat = delivery['dropoff_latitude'] as double?;
@@ -134,7 +147,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         dropoff = LatLng(dropoffLat, dropoffLng);
       }
 
-      // Get rider location if assigned
+      
       if (delivery['rider_id'] != null && delivery['riders'] != null) {
         final riderData = delivery['riders'] as Map<String, dynamic>;
         final riderLat = riderData['latitude'] as double?;
@@ -144,25 +157,24 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         }
       }
 
-      // Check if merchant has requested payment
+      
       final deliveryStatus = delivery['status']?.toString().toLowerCase() ?? '';
       final previousStatus = _delivery?['status']?.toString().toLowerCase() ?? '';
       final hasRider = delivery['rider_id'] != null;
       final paymentRequested = delivery['payment_requested'] == true;
       final previousPaymentRequested = _delivery?['payment_requested'] == true;
       
-      // Check if payment has been submitted by checking payments table
-      if (paymentRequested && !_hasSubmittedPayment && !_paymentRequestShown) {
-        await _checkPaymentStatus();
-      }
       
-      // Show payment dialog when merchant requests payment and payment hasn't been submitted
+      
+      await _checkPaymentStatus();
+      
+      
       if (paymentRequested && 
           !previousPaymentRequested && 
           !_hasSubmittedPayment && 
           !_paymentRequestShown && 
           mounted) {
-        // Merchant just requested payment
+        
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && !_hasSubmittedPayment) {
             _showPaymentDialog();
@@ -184,57 +196,65 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
           _isLoading = false;
         });
         
-        // Adjust polling interval based on status
+        
         if (previousStatus != deliveryStatus) {
           _startPolling();
         }
-        _updateMarkers();
-        
-        // Fetch route from pickup to dropoff using Directions API (only once)
-        if (pickup != null && dropoff != null && _routePoints == null) {
-          await _fetchRoute(pickup, dropoff);
-        } else {
-          _updatePolylines();
-        }
-        
-        // Fetch ETA from rider to user's current location if rider is assigned
-        // If user location is not available yet, fallback to dropoff location
-        final etaDestination = _userLocation ?? dropoff;
-        
-        if (rider != null && etaDestination != null) {
-          // Fetch ETA using the same route API if rider location changed or ETA hasn't been calculated yet
-          if (riderLocationChanged || _estimatedArrival == null || _userLocation != null) {
-            await _fetchRouteForETA(rider, etaDestination);
+        if (_isPaymentApproved) {
+          _updateMarkers();
+          
+          
+          if (pickup != null && dropoff != null && _routePoints == null) {
+            await _fetchRoute(pickup, dropoff);
+          } else {
+            _updatePolylines();
           }
-          // Start timer to update ETA countdown every 30 seconds
-          _etaTimer?.cancel();
-          _etaTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-            if (mounted && _estimatedArrival != null) {
+          
+          
+          
+          final etaDestination = _userLocation ?? dropoff;
+          
+          if (rider != null && etaDestination != null) {
+            
+            if (riderLocationChanged || _estimatedArrival == null || _userLocation != null) {
+              await _fetchRouteForETA(rider, etaDestination);
+            }
+            
+            _etaTimer?.cancel();
+            _etaTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+              if (mounted && _estimatedArrival != null && _isPaymentApproved) {
+                setState(() {
+                  
+                });
+              }
+              
+              
+              if (mounted && rider != null && _isPaymentApproved) {
+                final destination = _userLocation ?? dropoff;
+                if (destination != null) {
+                  _fetchRouteForETA(rider, destination);
+                }
+              }
+            });
+          } else {
+            
+            _etaTimer?.cancel();
+            if (mounted) {
               setState(() {
-                // Trigger rebuild to update ETA display
+                _etaText = 'Calculating...';
+                _estimatedArrival = null;
               });
             }
-            // Re-fetch ETA periodically if rider location might have changed
-            // Use user location if available, otherwise dropoff
-            if (mounted && rider != null) {
-              final destination = _userLocation ?? dropoff;
-              if (destination != null) {
-                _fetchRouteForETA(rider, destination);
-              }
-            }
-          });
-        } else {
-          // Cancel timer if no rider
-          _etaTimer?.cancel();
-          if (mounted) {
-            setState(() {
-              _etaText = 'Calculating...';
-              _estimatedArrival = null;
-            });
           }
+          
+          _updateCamera();
+        } else {
+          
+          setState(() {
+            _markers = {};
+            _polylines = {};
+          });
         }
-        
-        _updateCamera();
       }
     } catch (e) {
       debugPrint('Error loading delivery: $e');
@@ -253,22 +273,76 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
     try {
       debugPrint('=== Checking payment status ===');
       
-      // Check if payment has been submitted for this delivery
+      
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
+      
       
       final payments = await Supabase.instance.client
           .from('payments')
           .select('id, status')
           .eq('delivery_id', widget.orderId!)
-          .eq('customer_id', user.id);
+          .eq('customer_id', user.id)
+          .order('created_at', ascending: false)
+          .limit(1);
+      
+      
+      final deliveryStatus = _delivery?['status']?.toString().toLowerCase().trim() ?? '';
+      final deliveryIndicatesApproval = deliveryStatus == 'prepared' || 
+                                        deliveryStatus == 'ready' ||
+                                        deliveryStatus == 'assigned' ||
+                                        deliveryStatus == 'picked_up' ||
+                                        deliveryStatus == 'picked up' ||
+                                        deliveryStatus == 'in_transit' ||
+                                        deliveryStatus == 'in transit' ||
+                                        deliveryStatus == 'on_the_way' ||
+                                        deliveryStatus == 'on the way' ||
+                                        deliveryStatus == 'delivered' ||
+                                        deliveryStatus == 'completed';
+      
+      bool isApproved = false;
+      String paymentStatus = '';
       
       if (payments.isNotEmpty) {
-        setState(() {
+        final payment = payments[0];
+        paymentStatus = payment['status']?.toString().toLowerCase() ?? '';
+        
+        
+        
+        isApproved = paymentStatus == 'verified' ||
+                    paymentStatus == 'approved' || 
+                    paymentStatus == 'confirmed' ||
+                    deliveryIndicatesApproval;
+        
+        debugPrint('Payment status from table: $paymentStatus');
+        debugPrint('Delivery status: $deliveryStatus');
+        debugPrint('Delivery indicates approval: $deliveryIndicatesApproval');
+        debugPrint('Final isApproved: $isApproved');
+      } else if (deliveryIndicatesApproval) {
+        
+        isApproved = true;
+        debugPrint('No payment record, but delivery status ($deliveryStatus) indicates approval');
+      }
+      
+      final wasApproved = _isPaymentApproved;
+      setState(() {
+        if (payments.isNotEmpty || deliveryIndicatesApproval) {
           _hasSubmittedPayment = true;
           _paymentRequestShown = true;
-        });
-        debugPrint('✅ Payment already submitted');
+        }
+        _isPaymentApproved = isApproved;
+      });
+      debugPrint('✅ Payment status: $paymentStatus, Delivery status: $deliveryStatus, Approved: $isApproved');
+      
+      
+      if (isApproved && !wasApproved) {
+        debugPrint('🎉 Payment approved! Reloading delivery...');
+        _paymentStatusTimer?.cancel(); 
+        _loadDelivery(); 
+        _startPolling(); 
+      } else if (!isApproved && _hasSubmittedPayment) {
+        
+        _startPaymentStatusPolling();
       }
     } catch (e) {
       debugPrint('Error checking payment status: $e');
@@ -276,6 +350,8 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
   }
 
   Future<void> _getUserLocation() async {
+    if (!_isPaymentApproved) return;
+    
     try {
       final hasPermission = await _checkLocationPermission();
       if (!hasPermission) return;
@@ -284,7 +360,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         desiredAccuracy: LocationAccuracy.high,
       );
 
-      if (mounted) {
+      if (mounted && _isPaymentApproved) {
         setState(() {
           _userLocation = LatLng(position.latitude, position.longitude);
         });
@@ -318,9 +394,16 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
   }
 
   void _updateMarkers() {
+    if (!_isPaymentApproved) {
+      setState(() {
+        _markers = {};
+      });
+      return;
+    }
+    
     final markers = <Marker>{};
 
-    // Pickup marker (merchant)
+    
     if (_pickupLocation != null) {
       markers.add(
         Marker(
@@ -335,7 +418,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       );
     }
 
-    // Dropoff marker (customer)
+    
     if (_dropoffLocation != null) {
       markers.add(
         Marker(
@@ -350,7 +433,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       );
     }
 
-    // Rider marker (if assigned)
+    
     if (_riderLocation != null) {
       markers.add(
         Marker(
@@ -365,7 +448,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       );
     }
 
-    // User location marker (current location)
+    
     if (_userLocation != null) {
       markers.add(
         Marker(
@@ -406,7 +489,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
           });
           _updatePolylines();
           
-          // Extract duration from the route for ETA
+          
           final legs = route['legs'] as List;
           if (legs.isNotEmpty && _riderLocation != null && _dropoffLocation != null) {
             final leg = legs[0];
@@ -426,7 +509,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       }
     } catch (e) {
       debugPrint('Error fetching route: $e');
-      // Fall back to straight line if API fails
+      
       setState(() {
         _routePoints = null;
       });
@@ -434,14 +517,26 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
     }
   }
 
-  // Fetch route specifically for ETA calculation (rider to dropoff)
+  
   Future<void> _fetchRouteForETA(LatLng origin, LatLng destination) async {
     try {
       debugPrint('=== Fetching ETA Route ===');
       debugPrint('Origin: ${origin.latitude}, ${origin.longitude}');
       debugPrint('Destination: ${destination.latitude}, ${destination.longitude}');
       
-      // Check distance - only show "Arrived" if very close AND delivery is actually delivered
+      
+      if (origin.latitude.abs() > 90 || origin.longitude.abs() > 180 ||
+          destination.latitude.abs() > 90 || destination.longitude.abs() > 180) {
+        debugPrint('❌ Invalid coordinates detected');
+        if (mounted) {
+          setState(() {
+            _etaText = 'Invalid location';
+          });
+        }
+        return;
+      }
+      
+      
       final distance = _calculateDistance(
         origin.latitude, 
         origin.longitude, 
@@ -451,13 +546,24 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       
       debugPrint('Distance between rider and destination: ${distance.toStringAsFixed(3)} km');
       
-      // Only show "Arrived" if delivery status is delivered/completed
-      // For in-transit orders, always calculate ETA even if close
+      
+      if (distance > 1000) {
+        debugPrint('⚠️ Distance seems too large (${distance.toStringAsFixed(2)} km), coordinates may be invalid');
+        if (mounted) {
+          setState(() {
+            _etaText = 'Unable to calculate';
+          });
+        }
+        return;
+      }
+      
+      
+      
       final deliveryStatus = _delivery?['status']?.toString().toLowerCase() ?? '';
       final isDelivered = deliveryStatus == 'delivered' || deliveryStatus == 'completed';
       
-      // If very close (less than 100m) and status is delivered, show arrived
-      if (distance < 0.1 && isDelivered) { // Less than 100 meters
+      
+      if (distance < 0.1 && isDelivered) { 
         debugPrint('✅ Rider is very close and delivery is completed');
         if (mounted) {
           setState(() {
@@ -469,12 +575,12 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         return;
       }
       
-      // If very close but still in transit, show "Less than 1 min" instead of "Arrived"
+      
       if (distance < 0.1) {
         debugPrint('⚠️ Rider is very close (<100m) but delivery is still in transit');
         if (mounted) {
           setState(() {
-            _etaSeconds = 60; // 1 minute
+            _etaSeconds = 60; 
             _estimatedArrival = DateTime.now().add(const Duration(seconds: 60));
             _etaText = 'Less than 1 min';
           });
@@ -483,7 +589,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       }
       
       final apiKey = MapsConfig.apiKey;
-      // Use the same URL format as _fetchRoute which works
+      
       final url = Uri.parse(
         'https://maps.googleapis.com/maps/api/directions/json'
         '?origin=${origin.latitude},${origin.longitude}'
@@ -499,7 +605,11 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         final data = json.decode(response.body);
         debugPrint('ETA Route API Status: ${data['status']}');
         
-        if (data['status'] == 'OK' && data['routes'].isNotEmpty) {
+        if (data['error_message'] != null) {
+          debugPrint('❌ API Error Message: ${data['error_message']}');
+        }
+        
+        if (data['status'] == 'OK' && data['routes'] != null && (data['routes'] as List).isNotEmpty) {
           final route = data['routes'][0];
           final legs = route['legs'] as List;
           if (legs.isNotEmpty) {
@@ -530,10 +640,39 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
           }
         } else {
           debugPrint('⚠️ API returned status: ${data['status']}');
-          // If API is denied, calculate fallback ETA based on distance
+          
           if (data['status'] == 'REQUEST_DENIED') {
-            debugPrint('⚠️ API denied, using fallback distance-based ETA');
+            final errorMessage = data['error_message'] ?? 'No error message provided';
+            debugPrint('❌ API REQUEST_DENIED');
+            debugPrint('❌ Error message: $errorMessage');
+            debugPrint('❌ Possible causes:');
+            debugPrint('   1. Directions API not enabled in Google Cloud Console');
+            debugPrint('   2. API key restrictions blocking the request');
+            debugPrint('   3. Billing not enabled for the Google Cloud project');
+            debugPrint('   4. Invalid or expired API key');
+            debugPrint('❌ Origin: ${origin.latitude}, ${origin.longitude}');
+            debugPrint('❌ Destination: ${destination.latitude}, ${destination.longitude}');
+            
+            final distance = _calculateDistance(
+              origin.latitude,
+              origin.longitude,
+              destination.latitude,
+              destination.longitude,
+            );
+            
+            debugPrint('❌ Calculated distance: ${distance.toStringAsFixed(3)} km');
+            
+            if (distance <= 1000 && distance > 0) {
+              debugPrint('⚠️ Using fallback distance-based ETA (API unavailable)');
             _calculateFallbackETA(origin, destination);
+            } else {
+              debugPrint('⚠️ Distance invalid (${distance.toStringAsFixed(2)} km), skipping fallback ETA');
+              if (mounted) {
+                setState(() {
+                  _etaText = 'Unable to calculate';
+                });
+              }
+            }
           } else if (mounted) {
             setState(() {
               _etaText = 'Unable to calculate';
@@ -563,9 +702,9 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
     }
   }
 
-  // Calculate distance between two coordinates using haversine formula
+  
   double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const double r = 6371.0; // Earth radius in km
+    const double r = 6371.0; 
     final double dLat = _deg2rad(lat2 - lat1);
     final double dLon = _deg2rad(lon2 - lon1);
     final double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
@@ -577,7 +716,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
 
   double _deg2rad(double deg) => deg * (math.pi / 180.0);
 
-  // Fallback ETA calculation based on distance (when API is not available)
+  
   void _calculateFallbackETA(LatLng origin, LatLng destination) {
     final distance = _calculateDistance(
       origin.latitude,
@@ -586,7 +725,16 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       destination.longitude,
     );
     
-    // Assume average speed of 30 km/h for city delivery
+    if (distance > 1000) {
+      debugPrint('⚠️ Distance too large for fallback ETA: ${distance.toStringAsFixed(2)} km');
+      if (mounted) {
+        setState(() {
+          _etaText = 'Unable to calculate';
+        });
+      }
+      return;
+    }
+    
     const double averageSpeedKmh = 30.0;
     final double hours = distance / averageSpeedKmh;
     final int minutes = (hours * 60).round();
@@ -603,7 +751,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
     
     if (mounted) {
       setState(() {
-        // State already updated above
+        
       });
     }
     
@@ -616,16 +764,16 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
     final now = DateTime.now();
     final difference = _estimatedArrival!.difference(now);
     
-    // Only show "Arrived" if delivery status is actually delivered/completed
+    
     final deliveryStatus = _delivery?['status']?.toString().toLowerCase() ?? '';
     final isDelivered = deliveryStatus == 'delivered' || deliveryStatus == 'completed';
     
-    // If negative (past ETA), check status
+    
     if (difference.isNegative) {
       return isDelivered ? 'Arrived' : 'Less than 1 min';
     }
     
-    // If less than 1 minute, show "Less than 1 min" instead of "Arrived"
+    
     if (difference.inMinutes < 1) {
       return isDelivered ? 'Arrived' : 'Less than 1 min';
     } else if (difference.inMinutes < 60) {
@@ -677,15 +825,22 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
   }
 
   void _updatePolylines() {
+    if (!_isPaymentApproved) {
+      setState(() {
+        _polylines = {};
+      });
+      return;
+    }
+    
     final polylines = <Polyline>{};
 
-    // Route from pickup to dropoff (use Directions API route if available)
+    
     if (_pickupLocation != null && _dropoffLocation != null) {
       final routePoints = _routePoints ?? [_pickupLocation!, _dropoffLocation!];
       final hasRealRoute = routePoints.length > 2;
       
       if (hasRealRoute) {
-        // Real route from Directions API - solid line
+        
         polylines.add(
           Polyline(
             polylineId: const PolylineId('route'),
@@ -695,7 +850,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
           ),
         );
       } else {
-        // Straight line fallback - dashed pattern
+        
         polylines.add(
           Polyline(
             polylineId: const PolylineId('route'),
@@ -708,7 +863,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       }
     }
 
-    // Polyline from rider to dropoff (if rider is assigned)
+    
     if (_riderLocation != null && _dropoffLocation != null) {
       polylines.add(
         Polyline(
@@ -727,46 +882,68 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
   }
 
   void _updateCamera() {
-    if (!mounted || mapController == null) return;
+    if (!mounted || mapController == null || !_isPaymentApproved) return;
 
     try {
-      final locations = <LatLng>[];
-      if (_pickupLocation != null) locations.add(_pickupLocation!);
-      if (_dropoffLocation != null) locations.add(_dropoffLocation!);
-      if (_riderLocation != null) locations.add(_riderLocation!);
-      if (_userLocation != null) locations.add(_userLocation!);
-
-      if (locations.isEmpty) return;
-
-      double minLat = locations.first.latitude;
-      double maxLat = locations.first.latitude;
-      double minLng = locations.first.longitude;
-      double maxLng = locations.first.longitude;
-
-      for (final loc in locations) {
-        minLat = loc.latitude < minLat ? loc.latitude : minLat;
-        maxLat = loc.latitude > maxLat ? loc.latitude : maxLat;
-        minLng = loc.longitude < minLng ? loc.longitude : minLng;
-        maxLng = loc.longitude > maxLng ? loc.longitude : maxLng;
+    final locations = <LatLng>[];
+    if (_pickupLocation != null) locations.add(_pickupLocation!);
+    if (_dropoffLocation != null) locations.add(_dropoffLocation!);
+    if (_riderLocation != null) locations.add(_riderLocation!);
+    
+    if (_userLocation != null) {
+      final deliveryLocations = <LatLng>[];
+      if (_pickupLocation != null) deliveryLocations.add(_pickupLocation!);
+      if (_dropoffLocation != null) deliveryLocations.add(_dropoffLocation!);
+      
+      if (deliveryLocations.isNotEmpty) {
+        double maxDistance = 0;
+        for (final loc in deliveryLocations) {
+          final distance = _calculateDistance(
+            _userLocation!.latitude,
+            _userLocation!.longitude,
+            loc.latitude,
+            loc.longitude,
+          );
+          if (distance > maxDistance) maxDistance = distance;
+        }
+        
+        if (maxDistance <= 10.0) {
+          locations.add(_userLocation!);
+        }
       }
+    }
 
-      final centerLat = (minLat + maxLat) / 2;
-      final centerLng = (minLng + maxLng) / 2;
-      final latDelta = (maxLat - minLat) * 1.5;
-      final lngDelta = (maxLng - minLng) * 1.5;
+    if (locations.isEmpty) return;
 
-      mapController!.animateCamera(
-        CameraUpdate.newLatLngBounds(
-          LatLngBounds(
-            southwest: LatLng(minLat - latDelta, minLng - lngDelta),
-            northeast: LatLng(maxLat + latDelta, maxLng + lngDelta),
-          ),
-          100.0, // padding in pixels
+    double minLat = locations.first.latitude;
+    double maxLat = locations.first.latitude;
+    double minLng = locations.first.longitude;
+    double maxLng = locations.first.longitude;
+
+    for (final loc in locations) {
+      minLat = loc.latitude < minLat ? loc.latitude : minLat;
+      maxLat = loc.latitude > maxLat ? loc.latitude : maxLat;
+      minLng = loc.longitude < minLng ? loc.longitude : minLng;
+      maxLng = loc.longitude > maxLng ? loc.longitude : maxLng;
+    }
+
+    final centerLat = (minLat + maxLat) / 2;
+    final centerLng = (minLng + maxLng) / 2;
+    final latDelta = (maxLat - minLat) * 1.5;
+    final lngDelta = (maxLng - minLng) * 1.5;
+
+    mapController!.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(minLat - latDelta, minLng - lngDelta),
+          northeast: LatLng(maxLat + latDelta, maxLng + lngDelta),
         ),
-      );
+        100.0, 
+      ),
+    );
     } catch (e) {
       debugPrint('Error updating camera: $e');
-      // Controller might be disposed, ignore the error
+      
     }
   }
 
@@ -800,10 +977,12 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         return 'Rider Assigned';
       case 'picked_up':
       case 'picked up':
-        return 'Picked Up';
+        return 'Order Picked Up';
       case 'in_transit':
       case 'in transit':
-        return 'On the Way';
+      case 'on_the_way':
+      case 'on the way':
+        return 'Rider is on the way';
       case 'delivered':
         return 'Delivered';
       case 'completed':
@@ -824,8 +1003,8 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
 
   bool _canSubmitPayment() {
     if (_delivery == null) return false;
-    if (_hasSubmittedPayment) return false; // Already submitted
-    // Can submit payment only when merchant has requested payment
+    if (_hasSubmittedPayment) return false; 
+    
     final paymentRequested = _delivery!['payment_requested'] == true;
     return paymentRequested;
   }
@@ -833,7 +1012,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
   Future<void> _showPaymentDialog() async {
     if (widget.orderId == null || _delivery == null) return;
     
-    // Mark that payment dialog has been shown
+    
     setState(() => _paymentRequestShown = true);
 
     final formKey = GlobalKey<FormState>();
@@ -843,35 +1022,35 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
     File? paymentImage;
     bool isLoading = false;
 
-    // Calculate total amount from delivery items
-    // First check if there's a direct total_amount field
+    
+    
     double totalAmount = 0;
     try {
-      // Check for direct total_amount field first
-      if (_delivery!['total_amount'] != null) {
-        final totalAmountValue = _delivery!['total_amount'];
-        if (totalAmountValue is num) {
-          totalAmount = totalAmountValue.toDouble();
+      final items = _delivery!['delivery_items'] as List<dynamic>? ?? [];
+      debugPrint('Delivery items count: ${items.length}');
+      
+      for (final item in items) {
+        final subtotal = item['subtotal'];
+        debugPrint('Item subtotal: $subtotal (type: ${subtotal.runtimeType})');
+        if (subtotal is num) {
+          totalAmount += subtotal.toDouble();
         }
+      }
+      debugPrint('Total from items: $totalAmount');
+      
+      final deliveryFee = _delivery!['delivery_fee'];
+      if (deliveryFee is num) {
+        totalAmount += deliveryFee.toDouble();
+        debugPrint('Added delivery fee: ${deliveryFee.toDouble()}, Final total: $totalAmount');
       } else {
-        // Calculate from delivery items if total_amount is not available
-        final items = _delivery!['delivery_items'] as List<dynamic>? ?? [];
-        for (final item in items) {
-          final subtotal = item['subtotal'];
-          if (subtotal is num) {
-            totalAmount += subtotal.toDouble();
-          }
-        }
-        final deliveryFee = _delivery!['delivery_fee'];
-        if (deliveryFee is num) {
-          totalAmount += deliveryFee.toDouble();
-        }
+        debugPrint('Warning: delivery_fee is null or not a number');
       }
     } catch (e) {
       debugPrint('Error calculating total: $e');
+      debugPrint('Stack trace: ${StackTrace.current}');
     }
 
-    // Pre-fill amount with total (read-only)
+    
     amountController.text = totalAmount.toStringAsFixed(2);
 
     await showDialog(
@@ -898,15 +1077,15 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
           content: SizedBox(
             width: MediaQuery.of(dialogContext).size.width * 0.9,
             child: SingleChildScrollView(
-              child: Form(
-                      key: formKey,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Merchant GCash Info
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                          
                   if (_delivery!['merchant_gcash_qr_url'] != null || _delivery!['merchant_gcash_number'] != null) ...[
-                    const Text(
+                  const Text(
                       'Pay to Merchant',
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                     ),
@@ -1000,7 +1179,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                     const Divider(),
                     const SizedBox(height: 16),
                   ],
-                  // Payment Image Upload
+                  
                   const Text(
                     'Payment Receipt',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
@@ -1059,12 +1238,12 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                               child: Stack(
                                 children: [
                                   ClipRRect(
-                                    borderRadius: BorderRadius.circular(6),
-                                    child: Image.file(
-                                      paymentImage!,
-                                      fit: BoxFit.cover,
-                                      width: double.infinity,
-                                      height: double.infinity,
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.file(
+                                paymentImage!,
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                height: double.infinity,
                                     ),
                                   ),
                                   Positioned(
@@ -1089,7 +1268,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // Reference Number
+                  
                   TextFormField(
                     controller: referenceController,
                     decoration: const InputDecoration(
@@ -1106,12 +1285,14 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                     },
                   ),
                   const SizedBox(height: 16),
-                  // Amount (read-only, matches order total)
+                  
                   TextFormField(
                     controller: amountController,
                     readOnly: true,
+                    enabled: false,
                     style: TextStyle(
                       color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
                     ),
                     decoration: InputDecoration(
                       labelText: 'Amount (₱)',
@@ -1119,9 +1300,12 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                       border: const OutlineInputBorder(),
                       prefixIcon: const Icon(Icons.attach_money),
                       prefixText: '₱',
-                      helperText: 'This amount matches your order total',
+                      helperText: 'This amount matches your order total and cannot be changed',
                       filled: true,
                       fillColor: Colors.grey[100],
+                      disabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.grey[400]!),
+                      ),
                     ),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     validator: (value) {
@@ -1132,16 +1316,17 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                       if (amount == null || amount <= 0) {
                         return 'Invalid amount';
                       }
-                      // Validate that the entered amount matches the calculated total
+                      
                       final expectedAmount = totalAmount.toStringAsFixed(2);
-                      if (value.trim() != expectedAmount) {
-                        return 'Amount must match order total (₱$expectedAmount)';
+                      final enteredAmount = amount.toStringAsFixed(2);
+                      if (enteredAmount != expectedAmount) {
+                        return 'Amount must exactly match order total (₱$expectedAmount)';
                       }
                       return null;
                     },
                   ),
                   const SizedBox(height: 16),
-                  // Sender Name
+                  
                   TextFormField(
                     controller: nameController,
                     decoration: const InputDecoration(
@@ -1159,7 +1344,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                   ),
                 ],
               ),
-            ),
+              ),
             ),
           ),
           actions: [
@@ -1207,19 +1392,25 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                   );
 
                   if (context.mounted) {
+                    
+                    Navigator.of(context).pop();
+                    
                     setState(() {
                       _hasSubmittedPayment = true;
                       _paymentRequestShown = true;
                     });
-                    Navigator.of(context).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Payment submitted successfully. Waiting for rider assignment...'),
+                        content: Text('Payment submitted successfully. Waiting for merchant approval...'),
                         backgroundColor: AppColors.success,
                         duration: Duration(seconds: 4),
                       ),
                     );
-                    // Reload delivery to update status
+                    
+                    await _checkPaymentStatus();
+                    
+                    _startPaymentStatusPolling();
+                    
                     _loadDelivery();
                   }
                 } catch (e) {
@@ -1255,9 +1446,19 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       ),
     );
 
+    
+    
+    
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
     referenceController.dispose();
     amountController.dispose();
     nameController.dispose();
+      } catch (e) {
+        
+        debugPrint('Error disposing controllers: $e');
+      }
+    });
   }
 
   void _showFullScreenImage(BuildContext context, File imageFile) {
@@ -1284,16 +1485,16 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
 
   Future<void> _downloadImage(File imageFile) async {
     try {
-      // Request appropriate permission based on platform
-      // Try photos first (Android 13+ and iOS), fallback to storage for older Android
+      
+      
       Permission? permission;
       if (Platform.isAndroid) {
-        // Try photos permission first (Android 13+)
+        
         try {
           permission = Permission.photos;
           var status = await permission.request();
           if (!status.isGranted) {
-            // Fallback to storage for older Android versions
+            
             permission = Permission.storage;
             status = await permission.request();
             if (!status.isGranted) {
@@ -1309,7 +1510,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
             }
           }
         } catch (e) {
-          // If photos permission is not available, use storage
+          
           permission = Permission.storage;
           final status = await permission.request();
           if (!status.isGranted) {
@@ -1340,7 +1541,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         }
       }
 
-      // Save image to gallery
+      
       try {
         await Gal.putImage(
           imageFile.path,
@@ -1354,7 +1555,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
               backgroundColor: AppColors.success,
             ),
           );
-          Navigator.of(context).pop(); // Close full-screen viewer
+          Navigator.of(context).pop(); 
         }
       } catch (e) {
         debugPrint('Error saving image: $e');
@@ -1382,7 +1583,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
 
   Future<void> _downloadNetworkImage(String imageUrl) async {
     try {
-      // Request appropriate permission based on platform
+      
       Permission? permission;
       if (Platform.isAndroid) {
         try {
@@ -1434,7 +1635,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         }
       }
 
-      // Show loading indicator
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1454,16 +1655,16 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         );
       }
 
-      // Download the image
+      
       final response = await http.get(Uri.parse(imageUrl));
       if (response.statusCode == 200) {
-        // Get temporary directory
+        
         final directory = await getTemporaryDirectory();
         final filePath = '${directory.path}/gcash_qr_${DateTime.now().millisecondsSinceEpoch}.png';
         final file = File(filePath);
         await file.writeAsBytes(response.bodyBytes);
 
-        // Save to gallery
+        
         try {
           await Gal.putImage(
             filePath,
@@ -1478,7 +1679,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                 backgroundColor: AppColors.success,
               ),
             );
-            Navigator.of(context).pop(); // Close full-screen viewer
+            Navigator.of(context).pop(); 
           }
         } catch (e) {
           debugPrint('Error saving GCash QR code: $e');
@@ -1520,7 +1721,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
   Future<void> _markAsCompleted() async {
     if (widget.orderId == null || _delivery == null) return;
 
-    // Show confirmation dialog
+    
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1571,7 +1772,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
             backgroundColor: AppColors.success,
           ),
         );
-        // Reload delivery to update status
+        
         _loadDelivery();
       }
     } catch (e) {
@@ -1626,7 +1827,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       );
     }
 
-    // Determine initial camera position
+    
     final initialCamera = _pickupLocation ?? 
                          _dropoffLocation ?? 
                          _riderLocation ?? 
@@ -1663,24 +1864,101 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       ),
       body: Stack(
         children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: initialCamera,
-              zoom: 13,
+          
+          if (_isPaymentApproved)
+            GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: initialCamera,
+                zoom: 13,
+              ),
+              markers: _markers,
+              polylines: _polylines,
+              myLocationEnabled: true,
+              myLocationButtonEnabled: true,
+              zoomControlsEnabled: true,
+              compassEnabled: true,
+              mapType: MapType.normal,
+              onMapCreated: (controller) {
+                mapController = controller;
+                _updateCamera();
+              },
+            )
+          else
+            Container(
+              color: Colors.grey[200],
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.map_outlined,
+                      size: 64,
+                      color: Colors.grey[400],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Map will be available after payment confirmation',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
             ),
-            markers: _markers,
-            polylines: _polylines,
-        myLocationEnabled: true,
-        myLocationButtonEnabled: true,
-            zoomControlsEnabled: true,
-            compassEnabled: true,
-            mapType: MapType.normal,
-            onMapCreated: (controller) {
-              mapController = controller;
-              _updateCamera();
-            },
+          
+          
+          if ((_delivery?['payment_requested'] == true && !_hasSubmittedPayment) ||
+              (_hasSubmittedPayment && !_isPaymentApproved && _delivery?['status']?.toString().toLowerCase() != 'prepared'))
+            Container(
+              color: Colors.white.withOpacity(0.95),
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.payment,
+                        size: 64,
+                        color: Colors.orange[700],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        _hasSubmittedPayment 
+                            ? 'Payment Pending Approval'
+                            : 'Payment Required',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange[900],
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _hasSubmittedPayment
+                            ? 'Your payment has been submitted and is waiting for merchant approval. Tracking will be available once your payment is confirmed.'
+                            : 'Please submit your payment to proceed. Tracking will be available once your payment is confirmed.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[700],
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 24),
+                      if (_hasSubmittedPayment)
+                        CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.orange[700]!),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
           ),
-          // Status card overlay
+          
           Positioned(
             top: 16,
             left: 16,
@@ -1734,19 +2012,19 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.location_on, size: 16, color: Colors.red),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'To: ${_delivery!['dropoff_address']}',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                ),
-                              ],
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on, size: 16, color: Colors.red),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'To: ${_delivery!['dropoff_address']}',
+                              style: const TextStyle(fontSize: 12),
                             ),
-                            // Show delivery notes if available
+                          ),
+                        ],
+                      ),
+                            
                             if (_delivery?['delivery_notes'] != null && 
                                 (_delivery!['delivery_notes'] as String).trim().isNotEmpty) ...[
                               const SizedBox(height: 4),
@@ -1774,7 +2052,183 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                           ],
                         ),
                       ),
-                    // Show status message for pending orders
+                    
+                    if (_delivery != null) ...[
+                      Builder(
+                        builder: (context) {
+                          final statusRaw = _delivery!['status'];
+                          final status = statusRaw?.toString().toLowerCase() ?? '';
+                          final isPickedUpOrInTransit = status == 'picked_up' || 
+                                                         status == 'picked up' || 
+                                                         status == 'in_transit' || 
+                                                         status == 'in transit';
+                          final isDeliveredOrCompleted = status == 'delivered' || status == 'completed';
+                          
+                          if ((isPickedUpOrInTransit && _delivery!['pickup_image'] != null) ||
+                              (isDeliveredOrCompleted && (_delivery!['pickup_image'] != null || _delivery!['dropoff_image'] != null)))
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isPickedUpOrInTransit 
+                                        ? 'Pickup Verification'
+                                        : 'Delivery Photos',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      
+                                      if (_delivery!['pickup_image'] != null && 
+                                          (isPickedUpOrInTransit || isDeliveredOrCompleted))
+                                        Expanded(
+                                          child: GestureDetector(
+                                            onTap: () => _showFullScreenNetworkImage(
+                                              context,
+                                              _delivery!['pickup_image'] as String,
+                                            ),
+                                            child: Container(
+                                              margin: const EdgeInsets.only(right: 6),
+                                              decoration: BoxDecoration(
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(color: AppColors.border),
+                                              ),
+                                              child: Column(
+                                                children: [
+                                                  ClipRRect(
+                                                    borderRadius: const BorderRadius.vertical(
+                                                      top: Radius.circular(7),
+                                                    ),
+                                                    child: Image.network(
+                                                      _delivery!['pickup_image'] as String,
+                                                      height: 100,
+                                                      width: double.infinity,
+                                                      fit: BoxFit.cover,
+                                                      errorBuilder: (_, __, ___) => Container(
+                                                        height: 100,
+                                                        color: Colors.grey[200],
+                                                        child: const Icon(
+                                                          Icons.image_not_supported,
+                                                          color: Colors.grey,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Container(
+                                                    padding: const EdgeInsets.all(8),
+                                                    child: Row(
+                                                      mainAxisAlignment: MainAxisAlignment.center,
+                                                      children: [
+                                                        const Icon(
+                                                          Icons.store,
+                                                          size: 14,
+                                                          color: Colors.green,
+                                                        ),
+                                                        const SizedBox(width: 4),
+                                                        const Text(
+                                                          'Pickup',
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            fontWeight: FontWeight.w600,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(width: 4),
+                                                        const Icon(
+                                                          Icons.fullscreen,
+                                                          size: 12,
+                                                          color: Colors.grey,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      
+                                      if (_delivery!['dropoff_image'] != null && isDeliveredOrCompleted)
+                                        Expanded(
+                                          child: GestureDetector(
+                                            onTap: () => _showFullScreenNetworkImage(
+                                              context,
+                                              _delivery!['dropoff_image'] as String,
+                                            ),
+                                            child: Container(
+                                              margin: const EdgeInsets.only(left: 6),
+                                              decoration: BoxDecoration(
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(color: AppColors.border),
+                                              ),
+                                              child: Column(
+                                                children: [
+                                                  ClipRRect(
+                                                    borderRadius: const BorderRadius.vertical(
+                                                      top: Radius.circular(7),
+                                                    ),
+                                                    child: Image.network(
+                                                      _delivery!['dropoff_image'] as String,
+                                                      height: 100,
+                                                      width: double.infinity,
+                                                      fit: BoxFit.cover,
+                                                      errorBuilder: (_, __, ___) => Container(
+                                                        height: 100,
+                                                        color: Colors.grey[200],
+                                                        child: const Icon(
+                                                          Icons.image_not_supported,
+                                                          color: Colors.grey,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Container(
+                                                    padding: const EdgeInsets.all(8),
+                                                    child: Row(
+                                                      mainAxisAlignment: MainAxisAlignment.center,
+                                                      children: [
+                                                        const Icon(
+                                                          Icons.location_on,
+                                                          size: 14,
+                                                          color: Colors.red,
+                                                        ),
+                                                        const SizedBox(width: 4),
+                                                        const Text(
+                                                          'Dropoff',
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            fontWeight: FontWeight.w600,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(width: 4),
+                                                        const Icon(
+                                                          Icons.fullscreen,
+                                                          size: 12,
+                                                          color: Colors.grey,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          return const SizedBox.shrink();
+                        },
+                      ),
+                    ],
+                    
                     if (_delivery != null && 
                         (_delivery!['status']?.toString().toLowerCase() ?? '') == 'pending')
                       Padding(
@@ -1804,7 +2258,49 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                           ),
                         ),
                       ),
-                    // Show status message when rider is assigned but payment not requested yet
+                    
+                    Builder(
+                      builder: (context) {
+                        final statusRaw = _delivery?['status'];
+                        final currentStatus = statusRaw?.toString().toLowerCase() ?? '';
+                        final isPickedUp = currentStatus == 'picked_up' || currentStatus == 'picked up';
+                        final isInTransit = currentStatus == 'in_transit' || 
+                                           currentStatus == 'in transit' || 
+                                           currentStatus == 'on_the_way' || 
+                                           currentStatus == 'on the way';
+                        
+                        if (_delivery != null && isPickedUp && _delivery!['pickup_image'] != null)
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.green.withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.check_circle, size: 20, color: Colors.green[700]),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Order has been picked up by the rider. The rider is now on the way to your location.',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.green[900],
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                    
                     if (_delivery != null && 
                         _delivery!['rider_id'] != null &&
                         _delivery!['payment_requested'] != true &&
@@ -1836,7 +2332,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                           ),
                         ),
                       ),
-                    // Show status message when payment is requested
+                    
                     if (_delivery != null && 
                         _delivery!['payment_requested'] == true &&
                         !_hasSubmittedPayment)
@@ -1867,9 +2363,11 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                           ),
                         ),
                       ),
-                    // Show status message after payment submitted (waiting for merchant approval)
+                    
+                    
                     if (_delivery != null && 
                         _hasSubmittedPayment &&
+                        !_isPaymentApproved &&
                         _delivery!['rider_id'] != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
@@ -1886,7 +2384,9 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  'Payment submitted! Waiting for merchant approval.',
+                                  _isPaymentApproved 
+                                    ? 'Payment approved! Tracking your order...'
+                                    : 'Payment submitted! Waiting for merchant approval.',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.orange[900],
@@ -1898,7 +2398,8 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                           ),
                         ),
                       ),
-                    if (_riderLocation != null)
+                    
+                    if (_riderLocation != null && _isPaymentApproved)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Row(
@@ -1913,7 +2414,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                                     'Rider is on the way',
                                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                                   ),
-                                  // Always show ETA when rider is assigned
+                                  
                                   Padding(
                                     padding: const EdgeInsets.only(top: 4),
                                     child: Row(
@@ -1945,7 +2446,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                           ],
                         ),
                       ),
-                    // Payment button (show for accepted orders before payment)
+                    
                     if (_canSubmitPayment())
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
@@ -1966,7 +2467,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                           ),
                         ),
                       ),
-                    // Mark as completed button (only show when delivered)
+                    
                     if (_canMarkAsCompleted())
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
@@ -1998,7 +2499,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
   }
 }
 
-// Full-screen image viewer widget
+
 class _FullScreenImageViewer extends StatelessWidget {
   final File imageFile;
   final VoidCallback onDownload;
@@ -2015,7 +2516,7 @@ class _FullScreenImageViewer extends StatelessWidget {
       insetPadding: EdgeInsets.zero,
       child: Stack(
         children: [
-          // Full-screen image
+          
           Center(
             child: InteractiveViewer(
               minScale: 0.5,
@@ -2026,7 +2527,7 @@ class _FullScreenImageViewer extends StatelessWidget {
               ),
             ),
           ),
-          // Close button
+          
           Positioned(
             top: 40,
             left: 20,
@@ -2047,7 +2548,7 @@ class _FullScreenImageViewer extends StatelessWidget {
               ),
             ),
           ),
-          // Download button
+          
           Positioned(
             top: 40,
             right: 20,
@@ -2074,7 +2575,7 @@ class _FullScreenImageViewer extends StatelessWidget {
   }
 }
 
-// Full-screen network image viewer widget
+
 class _FullScreenNetworkImageViewer extends StatelessWidget {
   final String imageUrl;
   final VoidCallback onDownload;
@@ -2091,7 +2592,7 @@ class _FullScreenNetworkImageViewer extends StatelessWidget {
       insetPadding: EdgeInsets.zero,
       child: Stack(
         children: [
-          // Full-screen image
+          
           Center(
             child: InteractiveViewer(
               minScale: 0.5,
@@ -2128,7 +2629,7 @@ class _FullScreenNetworkImageViewer extends StatelessWidget {
               ),
             ),
           ),
-          // Close button
+          
           Positioned(
             top: 40,
             left: 20,
@@ -2149,7 +2650,7 @@ class _FullScreenNetworkImageViewer extends StatelessWidget {
               ),
             ),
           ),
-          // Download button
+          
           Positioned(
             top: 40,
             right: 20,
@@ -2175,5 +2676,3 @@ class _FullScreenNetworkImageViewer extends StatelessWidget {
     );
   }
 }
-
-

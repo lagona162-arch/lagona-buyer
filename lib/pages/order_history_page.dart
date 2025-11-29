@@ -4,6 +4,11 @@ import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
 import 'order_tracking_page.dart';
 import 'package:intl/intl.dart';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:gal/gal.dart';
 
 class OrderHistoryPage extends StatefulWidget {
   static const String routeName = '/order-history';
@@ -42,7 +47,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
   }
 
   Future<void> _markAsCompleted(Map<String, dynamic> delivery) async {
-    // Show confirmation dialog
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -93,7 +97,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
             backgroundColor: AppColors.success,
           ),
         );
-        // Reload deliveries to update status
         _loadDeliveries();
       }
     } catch (e) {
@@ -132,28 +135,21 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
       debugPrint('=== Order History Debug ===');
       debugPrint('Total deliveries fetched: ${deliveries.length}');
       
-      // Debug: Print all statuses
       for (var i = 0; i < deliveries.length; i++) {
         final delivery = deliveries[i];
         final status = delivery['status'];
-        debugPrint('Delivery $i - Status: $status (type: ${status.runtimeType})');
+        final statusStr = status?.toString().toLowerCase().trim() ?? 'null';
+        debugPrint('Delivery $i - ID: ${delivery['id']}, Status: $status (normalized: $statusStr)');
       }
 
-      // Filter by status - convert to string to handle enum types
       final pending = deliveries.where((d) {
         final statusRaw = d['status'];
-        final status = statusRaw?.toString().toLowerCase() ?? 'pending';
-        debugPrint('Checking pending status: $status');
-        // Include all active statuses: pending, accepted, assigned, picked_up, in_transit, etc.
-        return status == 'pending' || 
-               status == 'accepted' ||
-               status == 'assigned' || 
-               status == 'picked_up' || 
-               status == 'in_transit' ||
-               status == 'picked up' ||
-               status == 'in transit' ||
-               status == 'on_the_way' ||
-               status == 'on the way';
+        final status = statusRaw?.toString().toLowerCase().trim() ?? 'pending';
+        final isCompleted = status == 'delivered' || status == 'completed';
+        final isCancelled = status == 'cancelled';
+        final isPending = !isCompleted && !isCancelled;
+        debugPrint('  → Delivery ${d['id']}: status="$status", isCompleted=$isCompleted, isCancelled=$isCancelled, isPending=$isPending');
+        return isPending;
       }).toList();
 
       final completed = deliveries.where((d) {
@@ -168,9 +164,13 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
         return status == 'cancelled';
       }).toList();
 
+      debugPrint('=== Filter Results ===');
       debugPrint('Pending count: ${pending.length}');
       debugPrint('Completed count: ${completed.length}');
       debugPrint('Cancelled count: ${cancelled.length}');
+      if (pending.isNotEmpty) {
+        debugPrint('Pending order IDs: ${pending.map((d) => d['id']).join(', ')}');
+      }
 
       if (mounted) {
         setState(() {
@@ -299,22 +299,10 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
       ),
       child: InkWell(
         onTap: () {
-          // Navigate to tracking page if order is active
-          final normalizedStatus = status.toLowerCase().trim();
-          if (normalizedStatus == 'pending' || 
-              normalizedStatus == 'accepted' ||
-              normalizedStatus == 'assigned' || 
-              normalizedStatus == 'picked_up' || 
-              normalizedStatus == 'picked up' ||
-              normalizedStatus == 'in_transit' ||
-              normalizedStatus == 'in transit' ||
-              normalizedStatus == 'on_the_way' ||
-              normalizedStatus == 'on the way') {
             Navigator.of(context).pushNamed(
               OrderTrackingPage.routeName,
               arguments: delivery['id'] as String,
             );
-          }
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
@@ -322,7 +310,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header row
               Row(
                 children: [
                   Expanded(
@@ -367,7 +354,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                 ],
               ),
               const SizedBox(height: 12),
-              // Order items summary
               if (items.isNotEmpty)
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -425,7 +411,151 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                   ),
                 ),
               const SizedBox(height: 12),
-              // Footer with total and action
+              if (delivery['pickup_image'] != null || delivery['dropoff_image'] != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Delivery Photos',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          if (delivery['pickup_image'] != null)
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => _showFullScreenNetworkImage(
+                                  context,
+                                  delivery['pickup_image'] as String,
+                                ),
+                                child: Container(
+                                  margin: const EdgeInsets.only(right: 6),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: AppColors.border),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: const BorderRadius.vertical(
+                                          top: Radius.circular(7),
+                                        ),
+                                        child: Image.network(
+                                          delivery['pickup_image'] as String,
+                                          height: 80,
+                                          width: double.infinity,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => Container(
+                                            height: 80,
+                                            color: Colors.grey[200],
+                                            child: const Icon(
+                                              Icons.image_not_supported,
+                                              color: Colors.grey,
+                                              size: 24,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.all(6),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            const Icon(
+                                              Icons.store,
+                                              size: 12,
+                                              color: Colors.green,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            const Text(
+                                              'Pickup',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          if (delivery['dropoff_image'] != null)
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => _showFullScreenNetworkImage(
+                                  context,
+                                  delivery['dropoff_image'] as String,
+                                ),
+                                child: Container(
+                                  margin: const EdgeInsets.only(left: 6),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: AppColors.border),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: const BorderRadius.vertical(
+                                          top: Radius.circular(7),
+                                        ),
+                                        child: Image.network(
+                                          delivery['dropoff_image'] as String,
+                                          height: 80,
+                                          width: double.infinity,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => Container(
+                                            height: 80,
+                                            color: Colors.grey[200],
+                                            child: const Icon(
+                                              Icons.image_not_supported,
+                                              color: Colors.grey,
+                                              size: 24,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.all(6),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            const Icon(
+                                              Icons.location_on,
+                                              size: 12,
+                                              color: Colors.red,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            const Text(
+                                              'Dropoff',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 12),
               Builder(
                 builder: (context) {
                   final normalizedStatus = status.toLowerCase().trim();
@@ -452,7 +582,6 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                           ),
                         ],
                       ),
-                      // Show Track button for active orders or Complete button for delivered
                       if (normalizedStatus == 'pending' || 
                           normalizedStatus == 'accepted' ||
                           normalizedStatus == 'assigned' || 
@@ -494,6 +623,58 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  void _showFullScreenNetworkImage(BuildContext context, String imageUrl) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: EdgeInsets.zero,
+        child: Stack(
+          children: [
+            Center(
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => Container(
+                    padding: const EdgeInsets.all(40),
+                    color: Colors.black54,
+                    child: const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          color: Colors.white,
+                          size: 64,
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Failed to load image',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 40,
+              right: 20,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ],
         ),
       ),
     );

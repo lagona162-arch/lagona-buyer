@@ -71,7 +71,7 @@ class _BuyerLoadingCardState extends State<_BuyerLoadingCard> with SingleTickerP
             animation: _controller,
             builder: (context, child) {
               final double t = _controller.value;
-              // Cart wheels rotate; cart bounces slightly
+              
               final double bounce = math.sin(t * math.pi * 2) * 4;
               return Transform.translate(
                 offset: Offset(0, bounce),

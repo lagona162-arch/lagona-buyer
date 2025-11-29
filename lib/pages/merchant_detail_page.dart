@@ -35,7 +35,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
       curve: Curves.easeInOut,
     );
     _animationController.forward();
-    // Listen to cart changes to update UI
+    
     _cartService.addListener(_onCartChanged);
   }
 
@@ -79,7 +79,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                   return _buildEmptyState();
                 }
 
-                // Also fetch merchant info for header
+                
                 return FutureBuilder<Merchant?>(
                   future: service.getMerchantById(merchantId),
                   builder: (context, merchantSnapshot) {
@@ -87,7 +87,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                     return CustomScrollView(
                       slivers: [
                         _buildAppBar(merchant),
-                        // Mini Map Section - Below header, above menu
+                        
                         if (_showMiniMap)
                           SliverToBoxAdapter(
                             child: AnimatedSize(
@@ -209,7 +209,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Map Header
+            
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
@@ -256,7 +256,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                 ],
               ),
             ),
-            // Map
+            
             SizedBox(
               height: 200,
               child: GoogleMap(
@@ -307,7 +307,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
         onPressed: () => Navigator.of(context).pop(),
       ),
       actions: [
-        // Mini Map Toggle - Always visible since merchants have location data
+        
         IconButton(
           icon: Container(
             padding: const EdgeInsets.all(8),
@@ -326,9 +326,9 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
             setState(() {
               _showMiniMap = !_showMiniMap;
             });
-            // Update map camera when toggled on
+            
             if (_showMiniMap && merchant != null && merchant!.latitude != null && merchant!.longitude != null) {
-              // Wait a bit for the map to be created
+              
               Future.delayed(const Duration(milliseconds: 100), () {
                 if (_mapController != null && mounted) {
                   _mapController!.animateCamera(
@@ -342,7 +342,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
             }
           },
         ),
-        // Cart Button
+        
         ListenableBuilder(
           listenable: _cartService,
           builder: (context, _) {
@@ -529,7 +529,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Item icon/placeholder
+              
               Container(
                 width: 70,
                 height: 70,
@@ -557,7 +557,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                       ),
               ),
               const SizedBox(width: 16),
-              // Item details
+              
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -825,7 +825,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
   void _showAddToCartDialog(MenuItem item) {
     final currentQuantity = _cartService.getItemQuantity(item.id);
     
-    // Check if adding from different merchant
+    
     if (_cartService.isDifferentMerchant(item.merchantId)) {
       showDialog(
         context: context,
@@ -878,7 +878,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Handle bar
+              
               Container(
                 margin: const EdgeInsets.only(top: 12, bottom: 8),
                 width: 40,
@@ -888,12 +888,12 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              // Item info
+              
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                 child: Row(
                   children: [
-                    // Item image/icon
+                    
                     Container(
                       width: 80,
                       height: 80,
@@ -921,7 +921,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                             ),
                     ),
                     const SizedBox(width: 16),
-                    // Item details
+                    
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -962,7 +962,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                 ),
               ),
               const Divider(height: 1),
-              // Quantity selector
+              
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
                 child: Row(
@@ -978,7 +978,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                     ),
                     Row(
                       children: [
-                        // Decrease button
+                        
                         Container(
                           decoration: BoxDecoration(
                             color: quantity > 1
@@ -1011,7 +1011,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                           ),
                         ),
                         const SizedBox(width: 16),
-                        // Increase button
+                        
                         Container(
                           decoration: BoxDecoration(
                             color: AppColors.primary.withOpacity(0.1),
@@ -1033,14 +1033,14 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                   ],
                 ),
               ),
-              // Add to cart button
+              
               Padding(
                 padding: const EdgeInsets.all(20),
                 child: SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
-                      // Use addItem for new items, updateQuantity for existing
+                      
                       final existingQty = _cartService.getItemQuantity(item.id);
                       if (existingQty > 0) {
                         _cartService.updateQuantity(item.id, quantity);
@@ -1050,7 +1050,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                       
                       Navigator.of(context).pop();
                       
-                      // Trigger rebuild to update cart counter
+                      
                       if (mounted) {
                         setState(() {});
                       }

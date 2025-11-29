@@ -16,17 +16,17 @@ class RiderMatch {
 class RiderSearchService {
 	final SupabaseService _supabaseService = SupabaseService();
 
-	// Find nearby available/active rider from database
+	
 	Future<RiderMatch?> findNearbyRider(LatLng userLocation, {double radiusKm = 5.0}) async {
 		try {
-			// Query database for nearby available riders
+			
 			final riders = await _supabaseService.findNearbyRiders(
 				latitude: userLocation.latitude,
 				longitude: userLocation.longitude,
 				radiusKm: radiusKm,
 			);
 
-			// Return the closest rider if any found
+			
 			if (riders.isNotEmpty) {
 				final closestRider = riders.first;
 				return RiderMatch(
@@ -41,7 +41,7 @@ class RiderSearchService {
 
 			return null;
 		} catch (e) {
-			// Log error and return null if query fails
+			
 			print('Error finding nearby rider: $e');
 			return null;
 		}

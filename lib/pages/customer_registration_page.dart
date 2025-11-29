@@ -35,7 +35,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 	bool _liveTracking = false;
 	final _formKey = GlobalKey<FormState>();
 	
-	/// Updates the map camera to the current selected location
+	
 	Future<void> _updateMapCamera() async {
 		if (mapController != null && selectedLatLng != null) {
 			try {
@@ -70,20 +70,20 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 			return 'Phone number is required';
 		}
 		
-		// Remove spaces, dashes, parentheses, and + signs
+		
 		final cleaned = value.trim().replaceAll(RegExp(r'[\s\-\(\)\+]'), '');
 		
-		// Check if it's a valid Philippines phone number
-		// Format: 09XXXXXXXXX (11 digits starting with 09)
-		final phPattern = RegExp(r'^09\d{9}$'); // 09XXXXXXXXX (11 digits)
+		
+		
+		final phPattern = RegExp(r'^09\d{9}$'); 
 		
 		if (phPattern.hasMatch(cleaned)) {
-			return null; // Valid: 09XXXXXXXXX
+			return null; 
 		}
 		
-		// Check if user entered +63 format and convert it
+		
 		if (cleaned.startsWith('639') && cleaned.length == 12) {
-			// Convert +639XXXXXXXXX to 09XXXXXXXXX
+			
 			final converted = '0${cleaned.substring(2)}';
 			if (phPattern.hasMatch(converted)) {
 				phoneController.text = converted;
@@ -97,7 +97,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 	Future<void> _loadUserData() async {
 		final user = Supabase.instance.client.auth.currentUser;
 		if (user != null) {
-			// Try to get name and phone from users table
+			
 			try {
 				final response = await Supabase.instance.client
 					.from('users')
@@ -118,10 +118,10 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 					phoneController.text = response['phone'] as String;
 				}
 			} catch (_) {
-				// User might not exist in users table yet, try metadata as fallback
+				
 				final fullName = user.userMetadata?['full_name'] as String?;
 				if (fullName != null && fullName.isNotEmpty) {
-					// Try to split full name (fallback)
+					
 					final parts = fullName.trim().split(' ');
 					if (parts.isNotEmpty) {
 						firstNameController.text = parts[0];
@@ -210,7 +210,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 			final results = (data['results'] as List?) ?? [];
 			if (results.isNotEmpty) {
 				final address = results.first['formatted_address'] as String?;
-				// Show address with coordinates
+				
 				final addressWithCoords = address != null
 					? '$address (${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)})'
 					: '${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)}';
@@ -221,7 +221,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 					searchController.text = addressWithCoords;
 				});
 			} else {
-				// No address found, just show coordinates
+				
 				if (!mounted) return;
 				final coords = '${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)}';
 				setState(() {
@@ -230,7 +230,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 				});
 			}
 		} else {
-			// If geocoding fails, still set coordinates
+			
 			if (!mounted) return;
 			final coords = '${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)}';
 			setState(() {
@@ -247,7 +247,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 			return;
 		}
 		
-		// Check location service first
+		
 		bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
 		if (!serviceEnabled) {
 			if (!mounted) return;
@@ -274,7 +274,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 			return;
 		}
 		
-		// Check and request permission only if needed
+		
 		LocationPermission permission = await Geolocator.checkPermission();
 		if (permission == LocationPermission.denied) {
 			permission = await Geolocator.requestPermission();
@@ -297,7 +297,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 			return;
 		}
 		
-		// Get current position immediately (not just from stream)
+		
 		try {
 			if (!mounted) return;
 			ScaffoldMessenger.of(context).showSnackBar(
@@ -319,11 +319,11 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 				_liveTracking = true;
 			});
 			
-			// Update map immediately - wait a bit for state to update
+			
 			await Future.delayed(const Duration(milliseconds: 100));
 			await _updateMapCamera();
 			
-			// Get address for current location
+			
 			await _reverseGeocode(latLng);
 			
 			if (!mounted) return;
@@ -344,11 +344,11 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 			return;
 		}
 		
-		// Start position stream for live tracking
+		
 		_posSub = Geolocator.getPositionStream(
 			locationSettings: const LocationSettings(
 				accuracy: LocationAccuracy.high,
-				distanceFilter: 10, // Update every 10 meters
+				distanceFilter: 10, 
 			),
 		).listen((pos) async {
 			if (!mounted) return;
@@ -361,13 +361,13 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 					CameraUpdate.newLatLngZoom(latLng, 17),
 				);
 			}
-			// Update address periodically
+			
 			await _reverseGeocode(latLng);
 		});
 	}
 
 	Future<void> submit() async {
-		// Validate form first
+		
 		if (!_formKey.currentState!.validate()) {
 			return;
 		}
@@ -379,7 +379,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 			return;
 		}
 		
-		// Clean phone number (remove spaces, dashes, etc.)
+		
 		final phone = phoneController.text.trim().replaceAll(RegExp(r'[\s\-\(\)]'), '');
 		final user = Supabase.instance.client.auth.currentUser;
 		if (user != null) {
@@ -389,7 +389,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 					address: selectedAddress!,
 					latitude: selectedLatLng!.latitude,
 					longitude: selectedLatLng!.longitude,
-					phone: phone, // Use cleaned phone number
+					phone: phone, 
 					firstName: firstNameController.text.trim(),
 					lastName: lastNameController.text.trim(),
 					middleInitial: middleInitialController.text.trim().isNotEmpty
@@ -426,7 +426,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 								children: [
 								TextFormField(
 									controller: firstNameController,
-									enabled: false, // Read-only, set from previous page
+									enabled: false, 
 									decoration: InputDecoration(
 										labelText: 'First Name',
 										border: const OutlineInputBorder(),
@@ -449,7 +449,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 								const SizedBox(height: 12),
 								TextFormField(
 									controller: lastNameController,
-									enabled: false, // Read-only, set from previous page
+									enabled: false, 
 									decoration: InputDecoration(
 										labelText: 'Last Name',
 										border: const OutlineInputBorder(),
@@ -462,13 +462,13 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 									controller: phoneController,
 									keyboardType: TextInputType.phone,
 									textInputAction: TextInputAction.next,
-									maxLength: 11, // Limit to 11 digits for PH format (09XXXXXXXXX)
+									maxLength: 11, 
 									decoration: InputDecoration(
 										labelText: 'Phone Number',
 										hintText: '09XXXXXXXXX',
 										border: const OutlineInputBorder(),
 										helperText: 'Philippines: 11 digits starting with 09',
-										counterText: '', // Hide character counter
+										counterText: '', 
 									),
 									validator: _validatePhoneNumber,
 								),
@@ -517,9 +517,9 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 							),
 							onMapCreated: (GoogleMapController controller) async {
 								mapController = controller;
-								// Move camera to selected location if available
+								
 								if (selectedLatLng != null) {
-									// Wait a bit for map to fully initialize
+									
 									await Future.delayed(const Duration(milliseconds: 300));
 									await _updateMapCamera();
 								}
