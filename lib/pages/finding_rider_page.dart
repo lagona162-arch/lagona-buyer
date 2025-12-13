@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/rider_search_service.dart';
 import '../services/supabase_service.dart';
 import 'order_tracking_page.dart';
+import 'padala_tracking_page.dart';
 
 class FindingRiderPage extends StatefulWidget {
 	static const String routeName = '/finding-rider';
@@ -94,10 +96,21 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 			
 			
 			try {
+				// Check if this is a Padala delivery
+				final delivery = await _supabaseService.getDeliveryById(widget.orderId);
+				final isPadala = delivery?['type'] == 'parcel';
+				
+				if (isPadala) {
+					await _supabaseService.assignRiderToPadala(
+						padalaId: widget.orderId,
+						riderId: match.riderId,
+					);
+				} else {
 				await _supabaseService.assignRiderToDelivery(
 					deliveryId: widget.orderId,
 					riderId: match.riderId,
 				);
+				}
 				
 				if (!mounted) return;
 				setState(() {
@@ -107,10 +120,19 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 				
 				await Future<void>.delayed(const Duration(milliseconds: 400));
 				if (!mounted) return;
+				
+				// Navigate to appropriate tracking page
+				if (isPadala) {
+					Navigator.of(context).pushReplacementNamed(
+						PadalaTrackingPage.routeName,
+						arguments: widget.orderId,
+					);
+				} else {
 				Navigator.of(context).pushReplacementNamed(
 					OrderTrackingPage.routeName,
 					arguments: widget.orderId,
 				);
+				}
 			} catch (e) {
 				if (!mounted) return;
 				setState(() {
@@ -124,13 +146,55 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 		}
 	}
 
-	void _exhausted() {
+	void _exhausted() async {
 		_stopAll();
 		if (!mounted) return;
 		setState(() {
 			_isSearching = false;
-			_statusText = 'No rider available within 5 km. Please try again.';
+			_statusText = 'No rider available within 5 km.';
 		});
+
+		// Show dialog with retry and cancel options
+		final action = await showDialog<String>(
+			context: context,
+			barrierDismissible: false,
+			builder: (context) => AlertDialog(
+				title: Row(
+					children: [
+						Icon(Icons.info_outline, color: Colors.orange.shade700),
+						const SizedBox(width: 12),
+						const Text('No Rider Found'),
+					],
+				),
+				content: const Text(
+					'We couldn\'t find an available rider within 5 minutes.\n\n'
+					'Would you like to retry searching for a rider or cancel this booking?',
+				),
+				actions: [
+					OutlinedButton(
+						onPressed: () => Navigator.of(context).pop('cancel'),
+						style: OutlinedButton.styleFrom(
+							foregroundColor: Colors.red,
+							side: const BorderSide(color: Colors.red),
+						),
+						child: const Text('Cancel Booking'),
+					),
+					ElevatedButton.icon(
+						onPressed: () => Navigator.of(context).pop('retry'),
+						icon: const Icon(Icons.refresh),
+						label: const Text('Retry Search'),
+					),
+				],
+			),
+		);
+
+		if (!mounted) return;
+
+		if (action == 'retry') {
+			_retry();
+		} else if (action == 'cancel') {
+			await _cancelDelivery();
+		}
 	}
 
 	void _stopAll() {
@@ -155,6 +219,71 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 		_pulseController?.repeat(reverse: true);
 		_startPolling();
 		_startTimeout();
+	}
+
+	Future<void> _cancelDelivery() async {
+		final confirm = await showDialog<bool>(
+			context: context,
+			builder: (context) => AlertDialog(
+				title: const Text('Cancel Booking'),
+				content: const Text('Are you sure you want to cancel this booking?'),
+				actions: [
+					TextButton(
+						onPressed: () => Navigator.of(context).pop(false),
+						child: const Text('No'),
+					),
+					ElevatedButton(
+						onPressed: () => Navigator.of(context).pop(true),
+						style: ElevatedButton.styleFrom(
+							backgroundColor: Colors.red,
+						),
+						child: const Text('Yes, Cancel', style: TextStyle(color: Colors.white)),
+					),
+				],
+			),
+		);
+
+		if (confirm == true && mounted) {
+			_stopAll();
+			setState(() {
+				_isSearching = false;
+				_statusText = 'Cancelling booking...';
+			});
+
+			try {
+				final user = Supabase.instance.client.auth.currentUser;
+				if (user != null) {
+				await _supabaseService.cancelDelivery(
+					deliveryId: widget.orderId,
+					customerId: user.id,
+				);
+
+				if (mounted) {
+					// Return true to indicate booking was cancelled
+					Navigator.of(context).pop(true);
+					ScaffoldMessenger.of(context).showSnackBar(
+						const SnackBar(
+							content: Text('Booking cancelled successfully'),
+							backgroundColor: Colors.orange,
+						),
+					);
+				}
+				}
+			} catch (e) {
+				if (mounted) {
+					setState(() {
+						_isSearching = false;
+						_statusText = 'Error cancelling booking. Please try again.';
+					});
+					ScaffoldMessenger.of(context).showSnackBar(
+						SnackBar(
+							content: Text('Error: $e'),
+							backgroundColor: Colors.red,
+						),
+					);
+				}
+			}
+		}
 	}
 
 	@override
@@ -183,7 +312,19 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 								Text('Timeout in ${remaining.inMinutes.remainder(60).toString().padLeft(2, '0')}:'
 										'${(remaining.inSeconds.remainder(60)).toString().padLeft(2, '0')}', style: const TextStyle(color: Colors.grey)),
 							const SizedBox(height: 24),
-							if (_isSearching) const LinearProgressIndicator(minHeight: 6),
+							if (_isSearching) ...[
+								const LinearProgressIndicator(minHeight: 6),
+								const SizedBox(height: 24),
+								OutlinedButton.icon(
+									onPressed: () => _cancelDelivery(),
+									icon: const Icon(Icons.close, size: 18),
+									label: const Text('Cancel Booking'),
+									style: OutlinedButton.styleFrom(
+										foregroundColor: Colors.red,
+										side: const BorderSide(color: Colors.red),
+									),
+								),
+							],
 							if (!_isSearching) ...[
 								const SizedBox(height: 12),
 								Row(
@@ -195,8 +336,11 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 										),
 										const SizedBox(width: 12),
 										TextButton(
-											onPressed: () => Navigator.of(context).pop(),
-											child: const Text('Cancel'),
+											onPressed: () => _cancelDelivery(),
+											style: TextButton.styleFrom(
+												foregroundColor: Colors.red,
+											),
+											child: const Text('Cancel Booking'),
 										),
 									],
 								)

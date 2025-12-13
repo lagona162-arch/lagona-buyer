@@ -3,6 +3,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../services/supabase_service.dart';
 import '../services/cart_service.dart';
 import '../models/menu_item.dart';
+import '../models/menu_addon.dart';
+import '../models/cart_item.dart';
 import '../models/merchant.dart';
 import '../theme/app_colors.dart';
 import 'cart_page.dart';
@@ -20,8 +22,12 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   final CartService _cartService = CartService();
+  final SupabaseService _service = SupabaseService();
   bool _showMiniMap = false;
   GoogleMapController? _mapController;
+  String? _selectedCategory;
+  List<String> _categories = [];
+  bool _categoriesLoaded = false;
 
   @override
   void initState() {
@@ -53,35 +59,78 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
     super.dispose();
   }
 
+  Map<String, List<MenuItem>> _groupProductsByCategory(List<MenuItem> products) {
+    final grouped = <String, List<MenuItem>>{};
+    for (final product in products) {
+      final category = product.category ?? 'Other';
+      grouped.putIfAbsent(category, () => []).add(product);
+    }
+    // Sort categories alphabetically
+    final sortedCategories = grouped.keys.toList()..sort();
+    return Map.fromEntries(
+      sortedCategories.map((key) => MapEntry(key, grouped[key]!)),
+    );
+  }
+
+  Widget _buildCategoryHeader(String category) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        category,
+        style: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: AppColors.primary,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
+  void _loadCategories(String merchantId) {
+    if (_categoriesLoaded) return;
+    
+    _service.getMerchantCategories(merchantId).then((categories) {
+      if (mounted) {
+        setState(() {
+          _categories = categories;
+          _categoriesLoaded = true;
+        });
+      }
+    }).catchError((error) {
+      debugPrint('Error loading categories: $error');
+      if (mounted) {
+        setState(() {
+          _categoriesLoaded = true;
+        });
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final String merchantId = ModalRoute.of(context)?.settings.arguments as String? ?? '';
-    final SupabaseService service = SupabaseService();
+
+    if (merchantId.isEmpty) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+        body: _buildErrorState('Invalid merchant', Icons.error_outline),
+      );
+    }
+
+    // Load categories on first build
+    if (!_categoriesLoaded) {
+      _loadCategories(merchantId);
+                }
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: merchantId.isEmpty
-          ? _buildErrorState('Invalid merchant', Icons.error_outline)
-          : FutureBuilder<List<MenuItem>>(
-              future: service.getMerchantProducts(merchantId),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return _buildLoadingState();
-                }
-                if (snapshot.hasError) {
-                  return _buildErrorState(
-                    'Failed to load menu: ${snapshot.error}',
-                    Icons.error_outline,
-                  );
-                }
-                final products = snapshot.data ?? [];
-                if (products.isEmpty) {
-                  return _buildEmptyState();
-                }
-
-                
-                return FutureBuilder<Merchant?>(
-                  future: service.getMerchantById(merchantId),
+      body: FutureBuilder<Merchant?>(
+        future: _service.getMerchantById(merchantId),
                   builder: (context, merchantSnapshot) {
                     final merchant = merchantSnapshot.data;
                     return CustomScrollView(
@@ -96,11 +145,30 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                               child: _buildMiniMapSection(merchant),
                             ),
                           ),
+              
                         SliverToBoxAdapter(
                           child: FadeTransition(
                             opacity: _fadeAnimation,
                             child: Padding(
                               padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Category Selection
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.border),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -110,46 +178,209 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                                         padding: const EdgeInsets.all(8),
                                         decoration: BoxDecoration(
                                           color: AppColors.primary.withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(10),
+                                      borderRadius: BorderRadius.circular(8),
                                         ),
                                         child: const Icon(
-                                          Icons.restaurant_menu,
+                                      Icons.category,
                                           color: AppColors.primary,
                                           size: 20,
                                         ),
                                       ),
                                       const SizedBox(width: 12),
-                                      Text(
-                                        'Menu (${products.length})',
-                                        style: const TextStyle(
-                                          fontSize: 22,
+                                  const Text(
+                                    'Select Category',
+                                    style: TextStyle(
+                                      fontSize: 18,
                                           fontWeight: FontWeight.bold,
                                           color: AppColors.textPrimary,
-                                          letterSpacing: 0.5,
                                         ),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 20),
-                                  ...List.generate(
-                                    products.length,
-                                    (index) => _buildMenuItemCard(
-                                      products[index],
-                                      index,
-                                    ),
+                              const SizedBox(height: 16),
+                              if (!_categoriesLoaded)
+                                const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(16.0),
+                                    child: CircularProgressIndicator(),
                                   ),
-                                  const SizedBox(height: 20),
+                                )
+                              else if (_categories.isEmpty)
+                                const Text(
+                                  'No categories available',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                  ),
+                                )
+                              else
+                                DropdownButtonFormField<String>(
+                                  value: _selectedCategory,
+                                  decoration: InputDecoration(
+                                    labelText: 'Choose a category',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    prefixIcon: const Icon(Icons.restaurant_menu),
+                                    filled: true,
+                                    fillColor: AppColors.inputBackground,
+                                  ),
+                                  items: _categories.map((category) {
+                                    return DropdownMenuItem<String>(
+                                      value: category,
+                                      child: Text(category),
+                                    );
+                                  }).toList(),
+                                  onChanged: (category) {
+                                    setState(() {
+                                      _selectedCategory = category;
+                                    });
+                                  },
+                                  hint: const Text('Select a category to view products'),
+                                ),
                                 ],
                               ),
                             ),
+                        const SizedBox(height: 24),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              
+              // Products Section (only shown when category is selected)
+              if (_selectedCategory != null)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: _buildProductsSection(merchantId, _selectedCategory!),
+                  ),
+                )
+              else if (_categoriesLoaded && _categories.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Container(
+                      padding: const EdgeInsets.all(24),
+                      child: Center(
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.inventory_2_outlined,
+                              size: 64,
+                              color: AppColors.textSecondary.withOpacity(0.5),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Select a category above to view products',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: AppColors.textSecondary,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                           ),
                         ),
                       ],
                     );
                   },
+      ),
                 );
-              },
+  }
+
+  Widget _buildProductsSection(String merchantId, String category) {
+    return FutureBuilder<List<MenuItem>>(
+      future: _service.getMerchantProductsByCategory(merchantId, category),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32.0),
+              child: CircularProgressIndicator(),
             ),
+          );
+        }
+        
+        if (snapshot.hasError) {
+          return Container(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'Error loading products: ${snapshot.error}',
+              style: const TextStyle(color: AppColors.error),
+            ),
+          );
+        }
+        
+        final products = snapshot.data ?? [];
+        
+        if (products.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.all(24),
+            child: Center(
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.restaurant_outlined,
+                    size: 64,
+                    color: AppColors.textSecondary.withOpacity(0.5),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No products in this category',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.restaurant_menu,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  '$category (${products.length})',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            ...products.asMap().entries.map((itemEntry) {
+              return _buildMenuItemCard(
+                itemEntry.value,
+                itemEntry.key,
+              );
+            }),
+            const SizedBox(height: 20),
+          ],
+        );
+      },
     );
   }
 
@@ -510,6 +741,14 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
           child: Opacity(opacity: value, child: child),
         );
       },
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            debugPrint('Product card tapped for ${item.name}');
+            _showAddToCartDialog(item);
+          },
+          borderRadius: BorderRadius.circular(16),
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
@@ -634,6 +873,8 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                 ),
               ),
             ],
+              ),
+            ),
           ),
         ),
       ),
@@ -861,6 +1102,16 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
   void _showQuantitySelector(MenuItem item) {
     final currentQuantity = _cartService.getItemQuantity(item.id);
     int quantity = currentQuantity > 0 ? currentQuantity : 1;
+    final Map<String, int> selectedAddons = {};
+    
+    // Initialize required addons with quantity 1
+    if (item.hasAddons) {
+      for (final addon in item.addons) {
+        if (addon.isRequired) {
+          selectedAddons[addon.id] = 1;
+        }
+      }
+    }
 
     showModalBottomSheet(
       context: context,
@@ -963,6 +1214,124 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
               ),
               const Divider(height: 1),
               
+              // Addons section
+              if (item.hasAddons)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Add-ons',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ...item.addons.map((addon) {
+                        final isSelected = selectedAddons.containsKey(addon.id);
+                        final addonQuantity = selectedAddons[addon.id] ?? 0;
+                        
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: isSelected 
+                                    ? AppColors.primary 
+                                    : AppColors.border,
+                                width: isSelected ? 2 : 1,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                              color: isSelected 
+                                  ? AppColors.primary.withOpacity(0.05)
+                                  : Colors.transparent,
+                            ),
+                            child: CheckboxListTile(
+                              value: isSelected || addon.isRequired,
+                              onChanged: addon.isRequired 
+                                  ? null 
+                                  : (value) {
+                                      setModalState(() {
+                                        if (value == true) {
+                                          selectedAddons[addon.id] = 1;
+                                        } else {
+                                          selectedAddons.remove(addon.id);
+                                        }
+                                      });
+                                    },
+                              title: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      addon.name,
+                                      style: TextStyle(
+                                        fontWeight: isSelected 
+                                            ? FontWeight.w600 
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    addon.isFree 
+                                        ? 'Free' 
+                                        : '₱${(addon.priceCents / 100).toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      color: addon.isFree 
+                                          ? AppColors.success 
+                                          : AppColors.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              secondary: addon.isRequired
+                                  ? null
+                                  : (isSelected && !addon.isRequired)
+                                      ? Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            IconButton(
+                                              icon: const Icon(Icons.remove_circle_outline, size: 20),
+                                              onPressed: addonQuantity > 1
+                                                  ? () {
+                                                      setModalState(() {
+                                                        selectedAddons[addon.id] = 
+                                                            (selectedAddons[addon.id] ?? 1) - 1;
+                                                      });
+                                                    }
+                                                  : null,
+                                            ),
+                                            Text(
+                                              '${selectedAddons[addon.id] ?? 1}',
+                                              style: const TextStyle(fontWeight: FontWeight.bold),
+                                            ),
+                                            IconButton(
+                                              icon: const Icon(Icons.add_circle_outline, size: 20),
+                                              onPressed: () {
+                                                setModalState(() {
+                                                  final maxQty = addon.maxQuantity ?? 10;
+                                                  if ((selectedAddons[addon.id] ?? 1) < maxQty) {
+                                                    selectedAddons[addon.id] = 
+                                                        (selectedAddons[addon.id] ?? 1) + 1;
+                                                  }
+                                                });
+                                              },
+                                            ),
+                                          ],
+                                        )
+                                      : null,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                  ),
+                ),
+              
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
                 child: Row(
@@ -1040,16 +1409,32 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
+                      // Convert selected addons to SelectedAddon list
+                      final selectedAddonsList = selectedAddons.entries.map((entry) {
+                        final addon = item.addons.firstWhere((a) => a.id == entry.key);
+                        return SelectedAddon(
+                          addonId: addon.id,
+                          name: addon.name,
+                          priceCents: addon.priceCents,
+                          quantity: entry.value,
+                        );
+                      }).toList();
                       
-                      final existingQty = _cartService.getItemQuantity(item.id);
-                      if (existingQty > 0) {
-                        _cartService.updateQuantity(item.id, quantity);
-                      } else {
-                        _cartService.addItem(item, quantity: quantity);
-                      }
+                      // Calculate total price including addons
+                      final basePrice = item.priceCents * quantity;
+                      final addonsPrice = selectedAddonsList.fold(
+                        0,
+                        (sum, addon) => sum + (addon.totalCents * quantity),
+                      );
+                      final totalPrice = (basePrice + addonsPrice) / 100;
+                      
+                      _cartService.addItem(
+                        item,
+                        quantity: quantity,
+                        selectedAddons: selectedAddonsList,
+                      );
                       
                       Navigator.of(context).pop();
-                      
                       
                       if (mounted) {
                         setState(() {});
@@ -1087,15 +1472,27 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: Row(
+                    child: Builder(
+                      builder: (context) {
+                        final basePrice = item.priceCents * quantity;
+                        final addonsPrice = selectedAddons.entries.fold<int>(
+                          0,
+                          (sum, entry) {
+                            final addon = item.addons.firstWhere((a) => a.id == entry.key);
+                            return sum + (addon.priceCents * entry.value * quantity);
+                          },
+                        );
+                        final totalPrice = (basePrice + addonsPrice) / 100;
+                        
+                        return Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         const Icon(Icons.shopping_cart, color: Colors.white),
                         const SizedBox(width: 8),
                         Text(
                           currentQuantity > 0
-                              ? 'Update Cart - ₱${((item.priceCents * quantity) / 100).toStringAsFixed(2)}'
-                              : 'Add to Cart - ₱${((item.priceCents * quantity) / 100).toStringAsFixed(2)}',
+                                  ? 'Update Cart - ₱${totalPrice.toStringAsFixed(2)}'
+                                  : 'Add to Cart - ₱${totalPrice.toStringAsFixed(2)}',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 16,
@@ -1103,6 +1500,8 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                           ),
                         ),
                       ],
+                        );
+                      },
                     ),
                   ),
                 ),

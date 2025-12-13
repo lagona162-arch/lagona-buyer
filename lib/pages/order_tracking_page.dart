@@ -1298,7 +1298,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                       labelText: 'Amount (₱)',
                       hintText: '0.00',
                       border: const OutlineInputBorder(),
-                      prefixIcon: const Icon(Icons.attach_money),
+                      prefixIcon: const Icon(Icons.payments),
                       prefixText: '₱',
                       helperText: 'This amount matches your order total and cannot be changed',
                       filled: true,

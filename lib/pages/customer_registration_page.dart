@@ -9,7 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/maps_config.dart';
 import '../services/supabase_service.dart';
-import 'merchant_list_page.dart';
+import 'service_selection_page.dart';
 
 class CustomerRegistrationPage extends StatefulWidget {
 	static const String routeName = '/register';
@@ -397,7 +397,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 						: null,
 				);
 				if (mounted) {
-					Navigator.of(context).pushReplacementNamed(MerchantListPage.routeName);
+					Navigator.of(context).pushReplacementNamed(ServiceSelectionPage.routeName);
 				}
 			} catch (e) {
 				if (mounted) {

@@ -10,6 +10,8 @@ import 'merchant_detail_page.dart';
 import 'profile_page.dart';
 import 'order_history_page.dart';
 import 'order_tracking_page.dart';
+import 'padala_booking_page.dart';
+import 'service_selection_page.dart';
 import '../theme/app_colors.dart';
 
 class MerchantListPage extends StatefulWidget {
@@ -429,7 +431,20 @@ class _MerchantListPageState extends State<MerchantListPage> {
                     color: AppColors.primary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
+                  child: m.photoUrl != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.network(
+                            m.photoUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const Icon(
+                              Icons.store,
+                              color: AppColors.primary,
+                              size: 40,
+                            ),
+                          ),
+                        )
+                      : const Icon(
                     Icons.store,
                     color: AppColors.primary,
                     size: 40,
@@ -520,7 +535,19 @@ class _MerchantListPageState extends State<MerchantListPage> {
                 color: AppColors.primary.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(
+              child: m.photoUrl != null
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.network(
+                        m.photoUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.store,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    )
+                  : const Icon(
                 Icons.store,
                 color: AppColors.primary,
               ),
@@ -708,6 +735,18 @@ class _MerchantListPageState extends State<MerchantListPage> {
                 pinned: true,
                 automaticallyImplyLeading: false,
                 backgroundColor: AppColors.primary,
+                leading: IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.home, color: Colors.white, size: 20),
+                  ),
+                  onPressed: () => Navigator.of(context).pushReplacementNamed(ServiceSelectionPage.routeName),
+                  tooltip: 'Back to Services',
+                ),
                 actions: [
                   IconButton(
                     icon: Container(
@@ -868,6 +907,19 @@ class _MerchantListPageState extends State<MerchantListPage> {
                                 ),
                               ),
                               const SizedBox(width: 12),
+                              Expanded(
+                                child: _buildQuickActionCard(
+                                  icon: Icons.local_shipping_outlined,
+                                  label: 'Padala',
+                                  color: Colors.green,
+                                  onTap: () => Navigator.of(context).pushNamed(PadalaBookingPage.routeName),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
                               Expanded(
                                 child: _buildQuickActionCard(
                                   icon: Icons.person,

@@ -5,10 +5,12 @@ import 'pages/cart_page.dart';
 import 'pages/order_tracking_page.dart';
 import 'pages/finding_rider_page.dart';
 import 'pages/padala_booking_page.dart';
+import 'pages/padala_tracking_page.dart';
 import 'pages/customer_registration_page.dart';
 import 'pages/profile_page.dart';
 import 'pages/order_history_page.dart';
 import 'pages/checkout_page.dart';
+import 'pages/service_selection_page.dart';
 import 'theme/app_colors.dart';
 import 'pages/login_page.dart';
 import 'pages/register_page.dart';
@@ -83,6 +85,7 @@ class BuyerApp extends StatelessWidget {
       routes: {
         LoginPage.routeName: (context) => const LoginPage(),
         RegisterPage.routeName: (context) => const RegisterPage(),
+        ServiceSelectionPage.routeName: (context) => const ServiceSelectionPage(),
         MerchantListPage.routeName: (context) => const MerchantListPage(),
         MerchantDetailPage.routeName: (context) => const MerchantDetailPage(),
         CartPage.routeName: (context) => const CartPage(),
@@ -108,6 +111,13 @@ class BuyerApp extends StatelessWidget {
           return FindingRiderPage(orderId: orderId);
         },
         PadalaBookingPage.routeName: (context) => const PadalaBookingPage(),
+        PadalaTrackingPage.routeName: (context) {
+          final padalaId = ModalRoute.of(context)?.settings.arguments as String?;
+          if (padalaId == null) {
+            return const PadalaBookingPage();
+          }
+          return PadalaTrackingPage(padalaId: padalaId);
+        },
         CustomerRegistrationPage.routeName: (context) => const CustomerRegistrationPage(),
         ProfilePage.routeName: (context) => const ProfilePage(),
         OrderHistoryPage.routeName: (context) {

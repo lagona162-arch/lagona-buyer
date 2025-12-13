@@ -25,7 +25,11 @@ class CartService extends ChangeNotifier {
   }
 
   
-  void addItem(MenuItem menuItem, {int quantity = 1}) {
+  void addItem(
+    MenuItem menuItem, {
+    int quantity = 1,
+    List<SelectedAddon> selectedAddons = const [],
+  }) {
     
     if (isDifferentMerchant(menuItem.merchantId)) {
       _items.clear();
@@ -34,8 +38,9 @@ class CartService extends ChangeNotifier {
       _merchantId = menuItem.merchantId;
     }
 
+    // Check if exact item with same addons exists
     final existingIndex = _items.indexWhere(
-      (item) => item.menuItemId == menuItem.id,
+      (item) => item.menuItemId == menuItem.id && item.hasSameAddons(selectedAddons),
     );
 
     if (existingIndex >= 0) {
@@ -50,6 +55,7 @@ class CartService extends ChangeNotifier {
         photoUrl: menuItem.photoUrl,
         priceCents: menuItem.priceCents,
         quantity: quantity,
+        selectedAddons: selectedAddons,
       ));
     }
 

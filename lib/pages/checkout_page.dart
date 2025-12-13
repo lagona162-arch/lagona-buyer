@@ -11,6 +11,7 @@ import '../services/cart_service.dart';
 import '../theme/app_colors.dart';
 import '../models/cart_item.dart';
 import '../models/merchant.dart';
+import '../utils/geo.dart';
 import 'order_tracking_page.dart';
 import 'merchant_list_page.dart';
 
@@ -46,6 +47,56 @@ class _CheckoutPageState extends State<CheckoutPage> {
     super.initState();
     _loadCustomerData();
     _loadMerchantData();
+    _checkExistingFoodOrder();
+  }
+
+  Future<void> _checkExistingFoodOrder() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final existingDeliveries = await _supabaseService.getCustomerDeliveries(
+        customerId: user.id,
+      );
+      
+      final hasActiveFoodOrder = existingDeliveries.any((d) {
+        final status = (d['status']?.toString().toLowerCase() ?? '').trim();
+        final type = d['type']?.toString().toLowerCase() ?? '';
+        final isFood = type == 'food' || type == '';
+        final isActive = status != 'delivered' && 
+                        status != 'completed' && 
+                        status != 'cancelled';
+        return isFood && isActive;
+      });
+      
+      if (hasActiveFoodOrder && mounted) {
+        // Show warning banner
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text(
+                  '⚠️ You already have an active food order. Please complete or cancel it first.',
+                ),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 5),
+                action: SnackBarAction(
+                  label: 'View',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    Navigator.of(context).pushReplacementNamed(
+                      '/service-selection',
+                    );
+                  },
+                ),
+              ),
+            );
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error checking existing food order: $e');
+    }
   }
 
   @override
@@ -113,19 +164,6 @@ class _CheckoutPageState extends State<CheckoutPage> {
     }
   }
 
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const double r = 6371.0; 
-    final double dLat = _deg2rad(lat2 - lat1);
-    final double dLon = _deg2rad(lon2 - lon1);
-    final double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_deg2rad(lat1)) * math.cos(_deg2rad(lat2)) *
-        math.sin(dLon / 2) * math.sin(dLon / 2);
-    final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-    return r * c;
-  }
-
-  double _deg2rad(double deg) => deg * (math.pi / 180.0);
-
   void _calculateDeliveryFee() {
     if (_merchant == null || _selectedLatLng == null) {
       setState(() => _deliveryFee = null);
@@ -137,19 +175,29 @@ class _CheckoutPageState extends State<CheckoutPage> {
       return;
     }
 
-    final distance = _calculateDistance(
+    // Use haversine formula from utils for accurate distance calculation
+    final distance = haversineKm(
       _merchant!.latitude!,
       _merchant!.longitude!,
       _selectedLatLng!.latitude,
       _selectedLatLng!.longitude,
     );
 
+    debugPrint('📍 Delivery distance calculated: ${distance.toStringAsFixed(2)} km');
     
+    // Delivery fee calculation:
+    // Base fee: ₱55 for first km
+    // Additional fee: ₱10 per km after the first km (rounded up)
     double fee = 55.0; 
     if (distance > 1.0) {
+      // Calculate additional kilometers beyond the first km
+      // Round up to charge for partial kilometers
       final additionalKm = (distance - 1.0).ceil(); 
       fee += additionalKm * 10.0;
+      debugPrint('💰 Additional km: $additionalKm, Fee: ₱${(additionalKm * 10.0).toStringAsFixed(2)}');
     }
+
+    debugPrint('💰 Total delivery fee: ₱${fee.toStringAsFixed(2)}');
 
     setState(() {
       _deliveryFee = fee;
@@ -345,6 +393,43 @@ class _CheckoutPageState extends State<CheckoutPage> {
     setState(() => _isPlacingOrder = true);
 
     try {
+      // Check for existing active food deliveries
+      final existingDeliveries = await _supabaseService.getCustomerDeliveries(
+        customerId: user.id,
+      );
+      
+      final hasActiveFoodOrder = existingDeliveries.any((d) {
+        final status = (d['status']?.toString().toLowerCase() ?? '').trim();
+        final type = d['type']?.toString().toLowerCase() ?? '';
+        final isFood = type == 'food' || type == '' || type == null;
+        final isActive = status != 'delivered' && 
+                        status != 'completed' && 
+                        status != 'cancelled';
+        return isFood && isActive;
+      });
+      
+      if (hasActiveFoodOrder) {
+        if (mounted) {
+          setState(() => _isPlacingOrder = false);
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Active Food Order'),
+              content: const Text(
+                'You already have an active food order in progress.\n\n'
+                'Please wait for it to complete or cancel it before placing another food order.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
       
       final address = _addressController.text.trim();
       if (address.isNotEmpty && _selectedLatLng != null) {

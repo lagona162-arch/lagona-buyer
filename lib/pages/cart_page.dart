@@ -226,17 +226,66 @@ class _CartPageState extends State<CartPage> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
+                  if (cartItem.selectedAddons.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    ...cartItem.selectedAddons.map((addon) {
+                      return Padding(
+                        padding: const EdgeInsets.only(left: 8, bottom: 4),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.add,
+                              size: 14,
+                              color: AppColors.textSecondary,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                '${addon.name}${addon.quantity > 1 ? ' (x${addon.quantity})' : ''}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ),
+                            if (addon.priceCents > 0)
+                              Text(
+                                '₱${(addon.priceCents / 100).toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ],
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
                       Text(
-                        '₱${(cartItem.priceCents / 100).toStringAsFixed(2)}',
+                            '₱${(cartItem.basePriceCents / 100).toStringAsFixed(2)}',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: AppColors.primary,
                         ),
+                          ),
+                          if (cartItem.addonsTotalCents > 0)
+                            Text(
+                              '+₱${(cartItem.addonsTotalCents / 100).toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                        ],
                       ),
                       
                       Row(

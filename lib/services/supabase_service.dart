@@ -274,6 +274,12 @@ class SupabaseService {
       final merchantData = Map<String, dynamic>.from(row);
       merchantData['address'] = address;
       
+      // Convert preview_image from storage path to public URL if needed
+      final previewImage = merchantData['preview_image'] as String?;
+      if (previewImage != null && previewImage.isNotEmpty) {
+        merchantData['preview_image'] = _convertToPublicUrl(previewImage, 'merchants');
+      }
+      
       merchants.add(Merchant.fromMap(merchantData));
   }
     
@@ -336,6 +342,12 @@ class SupabaseService {
       final merchantData = Map<String, dynamic>.from(row);
       merchantData['address'] = address;
       
+      // Convert preview_image from storage path to public URL if needed
+      final previewImage = merchantData['preview_image'] as String?;
+      if (previewImage != null && previewImage.isNotEmpty) {
+        merchantData['preview_image'] = _convertToPublicUrl(previewImage, 'merchants');
+      }
+      
       return Merchant.fromMap(merchantData);
     } catch (e) {
       debugPrint('Error getting merchant by ID: $e');
@@ -344,12 +356,207 @@ class SupabaseService {
   }
 
   
-  Future<List<MenuItem>> getMerchantProducts(String merchantId) async {
+  /// Get distinct categories for a merchant (optimized - only fetches categories)
+  Future<List<String>> getMerchantCategories(String merchantId) async {
+    try {
+      // Fetch only distinct categories
     final rows = await _client
+        .from('merchant_products')
+          .select('category')
+          .eq('merchant_id', merchantId)
+          .not('category', 'is', null);
+
+      // Extract unique categories
+      final categories = <String>{};
+      for (final row in rows) {
+        final category = row['category'] as String?;
+        if (category != null && category.isNotEmpty) {
+          categories.add(category);
+        }
+      }
+
+      // Sort categories alphabetically
+      final sortedCategories = categories.toList()..sort();
+      return sortedCategories;
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error fetching merchant categories:');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Error message: $e');
+      debugPrint('Stack trace: $stackTrace');
+      return [];
+    }
+  }
+
+  /// Get products for a merchant filtered by category
+  Future<List<MenuItem>> getMerchantProductsByCategory(
+    String merchantId,
+    String? category,
+  ) async {
+    try {
+      // Build query with conditional category filter
+      final queryBuilder = _client
+          .from('merchant_products')
+          .select('''
+            id,
+            merchant_id,
+            name,
+            category,
+            price,
+            stock,
+            product_addons (
+              id,
+              product_id,
+              name,
+              price
+            )
+          ''')
+        .eq('merchant_id', merchantId);
+
+      // Filter by category if provided
+      final query = (category != null && category.isNotEmpty)
+          ? queryBuilder.eq('category', category)
+          : queryBuilder;
+
+      try {
+        final rows = await query;
+
+        final products = (rows as List).map((e) {
+          final productData = Map<String, dynamic>.from(e);
+          
+          // Handle addons
+          if (productData['product_addons'] == null) {
+            productData['addons'] = [];
+          } else {
+            final addons = productData['product_addons'];
+            if (addons is List) {
+              productData['addons'] = addons.where((a) => a != null).toList();
+            } else {
+              productData['addons'] = [];
+            }
+          }
+          
+          // Handle optional photo_url
+          final photoUrl = productData['photo_url'] as String?;
+          if (photoUrl != null && photoUrl is String && photoUrl.isNotEmpty) {
+            productData['photo_url'] = _convertToPublicUrl(photoUrl, 'product-images');
+          } else {
+            productData['photo_url'] = null;
+          }
+          
+          return MenuItem.fromMap(productData);
+        }).toList();
+
+        return products;
+      } catch (relationError) {
+        debugPrint('⚠️ Relation query failed, trying simple query: $relationError');
+        
+        // Fallback: Simple query without addons
+        final simpleQueryBuilder = _client
         .from('merchant_products')
         .select('id,merchant_id,name,category,price,stock')
         .eq('merchant_id', merchantId);
-    return (rows as List).map((e) => MenuItem.fromMap(Map<String, dynamic>.from(e))).toList();
+        
+        final simpleQuery = (category != null && category.isNotEmpty)
+            ? simpleQueryBuilder.eq('category', category)
+            : simpleQueryBuilder;
+        
+        final rows = await simpleQuery;
+        
+        return (rows as List).map((e) {
+          final productData = Map<String, dynamic>.from(e);
+          productData['addons'] = [];
+          productData['photo_url'] = null;
+          return MenuItem.fromMap(productData);
+        }).toList();
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error fetching merchant products by category:');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Error message: $e');
+      debugPrint('Stack trace: $stackTrace');
+      return [];
+    }
+  }
+
+  /// Get all products for a merchant (kept for backward compatibility)
+  Future<List<MenuItem>> getMerchantProducts(String merchantId) async {
+    try {
+      // Try fetching products with addons first (if they exist)
+      try {
+    final rows = await _client
+        .from('merchant_products')
+            .select('''
+              id,
+              merchant_id,
+              name,
+              category,
+              price,
+              stock,
+              product_addons (
+                id,
+                product_id,
+                name,
+                price
+              )
+            ''')
+            .eq('merchant_id', merchantId)
+            .order('category', ascending: true);
+
+        final products = (rows as List).map((e) {
+          final productData = Map<String, dynamic>.from(e);
+          
+          // Handle addons - some products may not have addons yet
+          if (productData['product_addons'] == null) {
+            productData['addons'] = [];
+          } else {
+            // Filter out null addons and ensure we have a list
+            final addons = productData['product_addons'];
+            if (addons is List) {
+              productData['addons'] = addons.where((a) => a != null).toList();
+            } else {
+              productData['addons'] = [];
+            }
+          }
+          
+          // Handle optional photo_url if it exists (some products may not have photos yet)
+          final photoUrl = productData['photo_url'] as String?;
+          if (photoUrl != null && photoUrl is String && photoUrl.isNotEmpty) {
+            productData['photo_url'] = _convertToPublicUrl(photoUrl, 'product-images');
+          } else {
+            productData['photo_url'] = null;
+          }
+          
+          return MenuItem.fromMap(productData);
+        }).toList();
+
+        return products;
+      } catch (relationError) {
+        debugPrint('⚠️ Relation query failed (products may not have addons yet): $relationError');
+        // Fall through to simple query
+      }
+      
+      // Fallback: Simple query without addons for products that don't have them yet
+      final rows = await _client
+          .from('merchant_products')
+          .select('id,merchant_id,name,category,price,stock')
+          .eq('merchant_id', merchantId)
+          .order('category', ascending: true);
+
+      return (rows as List).map((e) {
+        final productData = Map<String, dynamic>.from(e);
+        productData['addons'] = [];
+        productData['photo_url'] = null; // photo_url may not exist in the table
+        
+        return MenuItem.fromMap(productData);
+      }).toList();
+      
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error fetching merchant products:');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Error message: $e');
+      debugPrint('Stack trace: $stackTrace');
+      return [];
+    }
   }
 
   
@@ -666,6 +873,17 @@ class SupabaseService {
         debugPrint('Dropoff coordinates: ${customerLat.toDouble()}, ${customerLng.toDouble()}');
       }
 
+      // Calculate distance for logging (not saved to database)
+      if (merchantLat != null && merchantLng != null && customerLat != null && customerLng != null) {
+        final distance = _calculateDistance(
+          merchantLat.toDouble(),
+          merchantLng.toDouble(),
+          customerLat.toDouble(),
+          customerLng.toDouble(),
+        );
+        debugPrint('📏 Calculated distance: ${distance.toStringAsFixed(2)} km');
+      }
+
       final deliveryResponse = await _client
           .from('deliveries')
           .insert(deliveryData)
@@ -787,6 +1005,32 @@ class SupabaseService {
 
   double _deg2rad(double deg) => deg * (math.pi / 180.0);
 
+  /// Convert storage path to public URL, or return as-is if already a full URL
+  /// 
+  /// If the path is already a full URL (starts with http/https), returns it unchanged.
+  /// Otherwise, converts the storage path to a public URL using Supabase Storage.
+  String _convertToPublicUrl(String pathOrUrl, String bucketName) {
+    // If it's already a full URL, return as-is
+    if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+      return pathOrUrl;
+    }
+    
+    // Remove leading slash if present
+    final cleanPath = pathOrUrl.startsWith('/') ? pathOrUrl.substring(1) : pathOrUrl;
+    
+    // Convert storage path to public URL using Supabase Storage
+    // getPublicUrl constructs the URL - it doesn't verify file existence
+    try {
+      final publicUrl = _client.storage.from(bucketName).getPublicUrl(cleanPath);
+      return publicUrl;
+    } catch (e) {
+      debugPrint('⚠️ Error converting storage path to public URL: $pathOrUrl');
+      debugPrint('   Bucket: $bucketName, Error: $e');
+      // Return the original path if conversion fails
+      return pathOrUrl;
+    }
+  }
+
   
   Future<void> assignRiderToDelivery({
     required String deliveryId,
@@ -799,7 +1043,10 @@ class SupabaseService {
 
       await _client
           .from('deliveries')
-          .update({'rider_id': riderId})
+          .update({
+            'rider_id': riderId,
+            'status': 'accepted',
+          })
           .eq('id', deliveryId);
 
       debugPrint('✅ Rider assigned to delivery');
@@ -1163,6 +1410,271 @@ class SupabaseService {
       debugPrint('✅ Payment submitted successfully');
     } catch (e, stackTrace) {
       debugPrint('❌ Error submitting payment:');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Error message: $e');
+      debugPrint('Stack trace: $stackTrace');
+      rethrow;
+    }
+  }
+
+  // ============ PADALA (PARCEL DELIVERY) METHODS ============
+  
+  /// Create a new Padala (parcel delivery) booking
+  Future<String> createPadalaBooking({
+    required String customerId,
+    required String pickupAddress,
+    required double pickupLatitude,
+    required double pickupLongitude,
+    required String senderName,
+    required String senderPhone,
+    String? senderNotes,
+    required String dropoffAddress,
+    required double dropoffLatitude,
+    required double dropoffLongitude,
+    required String recipientName,
+    required String recipientPhone,
+    String? recipientNotes,
+    String? packageDescription,
+    double? deliveryFee,
+  }) async {
+    try {
+      debugPrint('=== Creating Padala Booking ===');
+      debugPrint('Customer ID: $customerId');
+      debugPrint('Pickup: $pickupAddress');
+      debugPrint('Dropoff: $dropoffAddress');
+
+      // Create Padala details object to store in delivery_notes as JSON
+      final padalaDetails = {
+        'sender_name': senderName,
+        'sender_phone': senderPhone,
+        'recipient_name': recipientName,
+        'recipient_phone': recipientPhone,
+      };
+
+      if (senderNotes != null && senderNotes.trim().isNotEmpty) {
+        padalaDetails['sender_notes'] = senderNotes.trim();
+      }
+
+      if (recipientNotes != null && recipientNotes.trim().isNotEmpty) {
+        padalaDetails['recipient_notes'] = recipientNotes.trim();
+      }
+
+      if (packageDescription != null && packageDescription.trim().isNotEmpty) {
+        padalaDetails['package_description'] = packageDescription.trim();
+      }
+
+      final padalaData = <String, dynamic>{
+        'type': 'parcel',
+        'customer_id': customerId,
+        'status': 'pending',
+        'pickup_address': pickupAddress,
+        'pickup_latitude': pickupLatitude,
+        'pickup_longitude': pickupLongitude,
+        'dropoff_address': dropoffAddress,
+        'dropoff_latitude': dropoffLatitude,
+        'dropoff_longitude': dropoffLongitude,
+        'delivery_notes': jsonEncode(padalaDetails), // Store Padala details as JSON
+        'created_at': DateTime.now().toIso8601String(),
+      };
+
+      if (deliveryFee != null && deliveryFee > 0) {
+        padalaData['delivery_fee'] = deliveryFee;
+      }
+
+      // Calculate distance for logging (not saved to database)
+      final distance = _calculateDistance(
+        pickupLatitude,
+        pickupLongitude,
+        dropoffLatitude,
+        dropoffLongitude,
+      );
+      debugPrint('📏 Calculated Padala distance: ${distance.toStringAsFixed(2)} km');
+
+      final padalaResponse = await _client
+          .from('deliveries')
+          .insert(padalaData)
+          .select('id')
+          .single();
+
+      final padalaId = padalaResponse['id'] as String;
+      debugPrint('✅ Padala booking created with ID: $padalaId');
+
+      return padalaId;
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error creating Padala booking:');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Error message: $e');
+      debugPrint('Stack trace: $stackTrace');
+      rethrow;
+    }
+  }
+
+  /// Get Padala delivery details by ID
+  Future<Map<String, dynamic>?> getPadalaById(String padalaId) async {
+    try {
+      debugPrint('=== Fetching Padala Details ===');
+      debugPrint('Padala ID: $padalaId');
+
+      final padala = await _client
+          .from('deliveries')
+          .select('*')
+          .eq('id', padalaId)
+          .eq('type', 'parcel')
+          .maybeSingle();
+
+      if (padala == null) {
+        debugPrint('⚠️ Padala not found');
+        return null;
+      }
+
+      // Parse Padala details from delivery_notes JSON
+      final deliveryNotes = padala['delivery_notes'] as String?;
+      if (deliveryNotes != null && deliveryNotes.isNotEmpty) {
+        try {
+          final padalaDetails = jsonDecode(deliveryNotes) as Map<String, dynamic>;
+          // Merge padala details into the main object
+          padala.addAll(padalaDetails);
+        } catch (e) {
+          debugPrint('⚠️ Error parsing Padala details from delivery_notes: $e');
+        }
+      }
+
+      debugPrint('✅ Padala fetched');
+      debugPrint('Status: ${padala['status']}');
+      debugPrint('Rider ID: ${padala['rider_id']}');
+
+      // Fetch rider location if rider is assigned
+      final riderId = padala['rider_id'] as String?;
+      if (riderId != null) {
+        try {
+          final rider = await _client
+              .from('riders')
+              .select('id, latitude, longitude, current_address, last_active, status')
+              .eq('id', riderId)
+              .maybeSingle();
+
+          if (rider != null) {
+            padala['riders'] = rider;
+            debugPrint('Rider location: ${rider['latitude']}, ${rider['longitude']}');
+          }
+        } catch (e) {
+          debugPrint('⚠️ Error fetching rider details: $e');
+        }
+      }
+
+      return padala;
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error fetching Padala:');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Error message: $e');
+      debugPrint('Stack trace: $stackTrace');
+      return null;
+    }
+  }
+
+  /// Get all Padala deliveries for a customer
+  Future<List<Map<String, dynamic>>> getCustomerPadalaDeliveries({
+    required String customerId,
+    String? status,
+  }) async {
+    try {
+      debugPrint('=== Fetching Customer Padala Deliveries ===');
+      debugPrint('Customer ID: $customerId');
+      debugPrint('Status filter: ${status ?? 'all'}');
+
+      var query = _client
+          .from('deliveries')
+          .select('*')
+          .eq('customer_id', customerId)
+          .eq('type', 'parcel');
+
+      if (status != null && status.isNotEmpty) {
+        query = query.eq('status', status);
+      }
+
+      final padalaDeliveries = await query.order('created_at', ascending: false);
+
+      debugPrint('✅ Found ${padalaDeliveries.length} Padala deliveries');
+      return padalaDeliveries;
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error fetching customer Padala deliveries:');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Error message: $e');
+      debugPrint('Stack trace: $stackTrace');
+      return [];
+    }
+  }
+
+  /// Assign rider to Padala delivery
+  Future<void> assignRiderToPadala({
+    required String padalaId,
+    required String riderId,
+  }) async {
+    try {
+      debugPrint('=== Assigning Rider to Padala ===');
+      debugPrint('Padala ID: $padalaId');
+      debugPrint('Rider ID: $riderId');
+
+      await _client
+          .from('deliveries')
+          .update({
+            'rider_id': riderId,
+            'status': 'accepted',
+          })
+          .eq('id', padalaId)
+          .eq('type', 'parcel');
+
+      debugPrint('✅ Rider assigned to Padala');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error assigning rider to Padala:');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Error message: $e');
+      debugPrint('Stack trace: $stackTrace');
+      rethrow;
+    }
+  }
+
+  /// Cancel a delivery (works for both food and Padala)
+  Future<void> cancelDelivery({
+    required String deliveryId,
+    required String customerId,
+  }) async {
+    try {
+      debugPrint('=== Cancelling Delivery ===');
+      debugPrint('Delivery ID: $deliveryId');
+      debugPrint('Customer ID: $customerId');
+
+      // Verify delivery belongs to customer
+      final delivery = await _client
+          .from('deliveries')
+          .select('id, customer_id, status')
+          .eq('id', deliveryId)
+          .single();
+
+      if (delivery['customer_id'] != customerId) {
+        throw Exception('Delivery does not belong to this customer');
+      }
+
+      final currentStatus = delivery['status']?.toString().toLowerCase() ?? '';
+      
+      // Only allow cancellation if not already delivered or completed
+      if (currentStatus == 'delivered' || currentStatus == 'completed') {
+        throw Exception('Cannot cancel a delivery that has already been delivered or completed');
+      }
+
+      if (currentStatus == 'cancelled') {
+        throw Exception('Delivery is already cancelled');
+      }
+
+      // Update delivery status to cancelled
+      await _client
+          .from('deliveries')
+          .update({'status': 'cancelled'})
+          .eq('id', deliveryId);
+
+      debugPrint('✅ Delivery cancelled successfully');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error cancelling delivery:');
       debugPrint('Error type: ${e.runtimeType}');
       debugPrint('Error message: $e');
       debugPrint('Stack trace: $stackTrace');

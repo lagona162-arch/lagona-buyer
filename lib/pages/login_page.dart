@@ -4,7 +4,7 @@ import '../theme/app_colors.dart';
 import '../services/supabase_service.dart';
 import '../widgets/buyer_loading.dart';
 import 'register_page.dart';
-import 'merchant_list_page.dart';
+import 'service_selection_page.dart';
 
 class LoginPage extends StatefulWidget {
   static const String routeName = '/login';
@@ -91,7 +91,7 @@ class _LoginPageState extends State<LoginPage> {
         }
       }
       
-      Navigator.of(context).pushReplacementNamed(MerchantListPage.routeName);
+      Navigator.of(context).pushReplacementNamed(ServiceSelectionPage.routeName);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

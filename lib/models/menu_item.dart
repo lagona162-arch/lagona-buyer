@@ -1,3 +1,5 @@
+import 'menu_addon.dart';
+
 class MenuItem {
 	final String id;
 	final String merchantId;
@@ -5,6 +7,9 @@ class MenuItem {
 	final String? description;
 	final int priceCents;
 	final String? photoUrl;
+	final String? category;
+	final int? sortOrder;
+	final List<MenuAddon> addons;
 
 	const MenuItem({
 		required this.id,
@@ -13,6 +18,9 @@ class MenuItem {
 		this.description,
 		required this.priceCents,
 		this.photoUrl,
+		this.category,
+		this.sortOrder,
+		this.addons = const [],
 	});
 
 	factory MenuItem.fromMap(Map<String, dynamic> map) {
@@ -25,6 +33,24 @@ class MenuItem {
 		} else {
 			priceInCents = 0;
 		}
+
+		// Parse addons if available
+		List<MenuAddon> addonsList = [];
+		if (map['addons'] != null) {
+			final addonsData = map['addons'] as List?;
+			if (addonsData != null) {
+				addonsList = addonsData
+					.map((e) => MenuAddon.fromMap(Map<String, dynamic>.from(e)))
+					.toList();
+				// Sort by sort_order if available
+				addonsList.sort((a, b) {
+					final aOrder = a.sortOrder ?? 0;
+					final bOrder = b.sortOrder ?? 0;
+					return aOrder.compareTo(bOrder);
+				});
+			}
+		}
+
 		return MenuItem(
 			id: map['id'] as String,
 			merchantId: map['merchant_id'] as String,
@@ -32,8 +58,13 @@ class MenuItem {
 			description: map['description'] as String?,
 			priceCents: priceInCents,
 			photoUrl: map['photo_url'] as String?,
+			category: map['category'] as String?,
+			sortOrder: map['sort_order'] as int?,
+			addons: addonsList,
 		);
 	}
+
+	bool get hasAddons => addons.isNotEmpty;
 }
 
 

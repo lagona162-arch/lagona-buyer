@@ -5,6 +5,7 @@ import '../services/supabase_service.dart';
 import 'login_page.dart';
 import 'customer_registration_page.dart';
 import 'order_history_page.dart';
+import 'padala_booking_page.dart';
 
 class ProfilePage extends StatefulWidget {
   static const String routeName = '/profile';
@@ -260,6 +261,22 @@ class _ProfilePageState extends State<ProfilePage> {
                               subtitle: 'Track your current orders',
                               onTap: () {
                                 Navigator.of(context).pushNamed(OrderHistoryPage.routeName);
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        
+                        _buildSectionCard(
+                          title: 'Services',
+                          icon: Icons.local_shipping_outlined,
+                          children: [
+                            _buildListTile(
+                              icon: Icons.local_shipping_outlined,
+                              title: 'Book Padala',
+                              subtitle: 'Send packages and documents',
+                              onTap: () {
+                                Navigator.of(context).pushNamed(PadalaBookingPage.routeName);
                               },
                             ),
                           ],

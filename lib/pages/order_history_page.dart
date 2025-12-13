@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/supabase_service.dart';
 import '../theme/app_colors.dart';
 import 'order_tracking_page.dart';
+import 'padala_tracking_page.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -280,8 +282,31 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
   }
 
   Widget _buildDeliveryCard(Map<String, dynamic> delivery) {
+    final type = delivery['type']?.toString().toLowerCase() ?? 'food';
+    final isPadala = type == 'parcel';
+    
+    // Get merchant info for food orders
     final merchant = delivery['merchants'] as Map<String, dynamic>?;
     final merchantName = merchant?['business_name'] as String? ?? 'Unknown Merchant';
+    
+    // Get Padala info from delivery_notes if it's a Padala delivery
+    String? recipientName;
+    String? packageDescription;
+    if (isPadala) {
+      final deliveryNotes = delivery['delivery_notes'] as String?;
+      if (deliveryNotes != null && deliveryNotes.isNotEmpty) {
+        try {
+          final padalaDetails = Map<String, dynamic>.from(
+            const JsonDecoder().convert(deliveryNotes) as Map
+          );
+          recipientName = padalaDetails['recipient_name'] as String?;
+          packageDescription = padalaDetails['package_description'] as String?;
+        } catch (e) {
+          debugPrint('Error parsing Padala details: $e');
+        }
+      }
+    }
+    
     final statusRaw = delivery['status'];
     final status = statusRaw?.toString().toLowerCase() ?? 'pending';
     final statusColor = _getStatusColor(status);
@@ -299,10 +324,17 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
       ),
       child: InkWell(
         onTap: () {
+          if (isPadala) {
+            Navigator.of(context).pushNamed(
+              PadalaTrackingPage.routeName,
+              arguments: delivery['id'] as String,
+            );
+          } else {
             Navigator.of(context).pushNamed(
               OrderTrackingPage.routeName,
               arguments: delivery['id'] as String,
             );
+          }
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
@@ -312,17 +344,45 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
             children: [
               Row(
                 children: [
+                  // Service type icon
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    margin: const EdgeInsets.only(right: 12),
+                    decoration: BoxDecoration(
+                      color: isPadala 
+                          ? Colors.green.withOpacity(0.1) 
+                          : AppColors.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      isPadala ? Icons.local_shipping : Icons.restaurant,
+                      color: isPadala ? Colors.green : AppColors.primary,
+                      size: 20,
+                    ),
+                  ),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          merchantName,
+                          isPadala 
+                              ? (recipientName != null ? 'To: $recipientName' : 'Padala Delivery')
+                              : merchantName,
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: AppColors.textPrimary,
                           ),
+                        ),
+                        if (isPadala && packageDescription != null)
+                          Text(
+                            packageDescription,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 4),
                         Text(
