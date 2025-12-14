@@ -40,7 +40,7 @@ class CartItem {
   int get addonsTotalCents => selectedAddons.fold(
     0, 
     (sum, addon) => sum + addon.totalCents,
-  ) * quantity;
+  );
   
   int get lineTotalCents => basePriceCents + addonsTotalCents;
 

@@ -38,16 +38,27 @@ class MenuItem {
 		List<MenuAddon> addonsList = [];
 		if (map['addons'] != null) {
 			final addonsData = map['addons'] as List?;
-			if (addonsData != null) {
-				addonsList = addonsData
-					.map((e) => MenuAddon.fromMap(Map<String, dynamic>.from(e)))
-					.toList();
-				// Sort by sort_order if available
-				addonsList.sort((a, b) {
-					final aOrder = a.sortOrder ?? 0;
-					final bOrder = b.sortOrder ?? 0;
-					return aOrder.compareTo(bOrder);
-				});
+			if (addonsData != null && addonsData.isNotEmpty) {
+				try {
+					addonsList = addonsData
+						.map((e) {
+							try {
+								return MenuAddon.fromMap(Map<String, dynamic>.from(e));
+							} catch (e) {
+								return null;
+							}
+						})
+						.whereType<MenuAddon>()
+						.toList();
+					// Sort by sort_order if available
+					addonsList.sort((a, b) {
+						final aOrder = a.sortOrder ?? 0;
+						final bOrder = b.sortOrder ?? 0;
+						return aOrder.compareTo(bOrder);
+					});
+				} catch (e) {
+					addonsList = [];
+				}
 			}
 		}
 
@@ -57,7 +68,7 @@ class MenuItem {
 			name: (map['name'] as String?) ?? '',
 			description: map['description'] as String?,
 			priceCents: priceInCents,
-			photoUrl: map['photo_url'] as String?,
+			photoUrl: map['image_url'] as String? ?? map['photo_url'] as String?,
 			category: map['category'] as String?,
 			sortOrder: map['sort_order'] as int?,
 			addons: addonsList,

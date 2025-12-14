@@ -70,20 +70,15 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
       
       final allDeliveries = await _service.getCustomerDeliveries(customerId: user.id);
       
-      debugPrint('=== Service Selection Active Deliveries ===');
-      debugPrint('Total deliveries: ${allDeliveries.length}');
-      
       // Filter for active deliveries (not delivered, completed, or cancelled)
       final activeDeliveries = allDeliveries.where((d) {
         final status = (d['status']?.toString().toLowerCase() ?? '').trim();
         final isActive = status != 'delivered' && 
                         status != 'completed' && 
                         status != 'cancelled';
-        debugPrint('Delivery ${d['id']}: status=$status, isActive=$isActive');
         return isActive;
       }).toList();
       
-      debugPrint('Active deliveries: ${activeDeliveries.length}');
       
       if (mounted) {
         setState(() {

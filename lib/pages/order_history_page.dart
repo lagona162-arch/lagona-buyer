@@ -269,6 +269,14 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
         if (subtotal is num) {
           total += subtotal.toDouble();
         }
+        // Add add-ons subtotal
+        final addons = item['delivery_item_addons'] as List<dynamic>? ?? [];
+        for (final addon in addons) {
+          final addonSubtotal = addon['subtotal'];
+          if (addonSubtotal is num) {
+            total += addonSubtotal.toDouble();
+          }
+        }
       }
       final deliveryFee = delivery['delivery_fee'];
       if (deliveryFee is num) {
@@ -433,30 +441,60 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                         ),
                       ),
                       const SizedBox(height: 8),
-                      ...items.take(3).map<Widget>((item) {
+                      ...items.take(3).expand<Widget>((item) {
                         final product = item['merchant_products'] as Map<String, dynamic>?;
                         final productName = product?['name'] as String? ?? 'Unknown';
                         final quantity = item['quantity'] as int? ?? 1;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Row(
-                            children: [
-                              Text(
-                                '• ',
-                                style: TextStyle(color: AppColors.textSecondary),
-                              ),
-                              Expanded(
-                                child: Text(
-                                  '$quantity $productName',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: AppColors.textSecondary,
+                        final addons = item['delivery_item_addons'] as List<dynamic>? ?? [];
+                        
+                        return [
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Row(
+                              children: [
+                                Text(
+                                  '• ',
+                                  style: TextStyle(color: AppColors.textSecondary),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    '$quantity $productName',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: AppColors.textSecondary,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        );
+                          // Display add-ons for this item
+                          ...addons.map<Widget>((addon) {
+                            final addonName = addon['name'] as String? ?? 'Unknown';
+                            final addonQuantity = addon['quantity'] as int? ?? 1;
+                            return Padding(
+                              padding: const EdgeInsets.only(left: 16, bottom: 4),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    '+ ',
+                                    style: TextStyle(color: AppColors.textSecondary),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      '$addonQuantity $addonName',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: AppColors.textSecondary,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ];
                       }).toList(),
                       if (items.length > 3)
                         Text(

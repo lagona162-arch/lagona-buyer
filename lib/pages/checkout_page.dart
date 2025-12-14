@@ -447,21 +447,52 @@ class _CheckoutPageState extends State<CheckoutPage> {
         throw Exception('Merchant ID is required');
       }
       
-      final orderId = await _supabaseService.createOrder(
-        customerId: user.id,
-        merchantId: merchantId,
-        items: _cartService.items.map((item) => {
+      // Prepare order items with add-ons
+      final orderItems = _cartService.items.map((item) {
+        final addonsList = item.selectedAddons.map((addon) {
+          return {
+            'addon_id': addon.addonId,
+            'name': addon.name,
+            'price_cents': addon.priceCents,
+            'quantity': addon.quantity,
+          };
+        }).toList();
+        
+        debugPrint('🛒 Preparing order item: ${item.name}');
+        debugPrint('   - Menu Item ID: ${item.menuItemId}');
+        debugPrint('   - Quantity: ${item.quantity}');
+        debugPrint('   - Price (cents): ${item.priceCents}');
+        debugPrint('   - Add-ons: ${addonsList.length}');
+        if (addonsList.isNotEmpty) {
+          for (final addon in addonsList) {
+            final addonPriceCents = addon['price_cents'] as int;
+            debugPrint('      ➕ ${addon['name']} x${addon['quantity']} (₱${(addonPriceCents / 100).toStringAsFixed(2)} each)');
+          }
+        }
+        
+        return {
           'menu_item_id': item.menuItemId,
           'name': item.name,
           'price_cents': item.priceCents,
           'quantity': item.quantity,
-        }).toList(),
+          'addons': addonsList,
+        };
+      }).toList();
+      
+      debugPrint('📤 Sending ${orderItems.length} item(s) to createOrder...');
+      
+      final orderId = await _supabaseService.createOrder(
+        customerId: user.id,
+        merchantId: merchantId,
+        items: orderItems,
         deliveryAddress: address,
         deliveryLatitude: _selectedLatLng!.latitude,
         deliveryLongitude: _selectedLatLng!.longitude,
         deliveryNotes: _notesController.text.trim(),
         deliveryFee: _deliveryFee,
       );
+      
+      debugPrint('✅ Order created successfully! Order ID: $orderId');
 
       
       _cartService.clear();
@@ -801,31 +832,92 @@ class _CheckoutPageState extends State<CheckoutPage> {
                             padding: const EdgeInsets.all(16),
                             child: Column(
                               children: [
-                                ...items.map((item) => Padding(
-                                      padding: const EdgeInsets.only(bottom: 12),
-                                      child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              '${item.name} x${item.quantity}',
+                                ...items.map((item) {
+                                  final hasAddons = item.selectedAddons.isNotEmpty;
+                                  return Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Padding(
+                                        padding: EdgeInsets.only(bottom: hasAddons ? 8 : 12),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                '${item.name} x${item.quantity}',
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.textPrimary,
+                                                ),
+                                              ),
+                                            ),
+                                            Text(
+                                              '₱${(item.basePriceCents / 100).toStringAsFixed(2)}',
                                               style: const TextStyle(
                                                 fontSize: 14,
+                                                fontWeight: FontWeight.w600,
                                                 color: AppColors.textPrimary,
                                               ),
                                             ),
-                                          ),
-                                          Text(
-                                            '₱${(item.lineTotalCents / 100).toStringAsFixed(2)}',
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w600,
-                                              color: AppColors.textPrimary,
-                                            ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
-                                    )),
+                                      // Display add-ons
+                                      if (hasAddons)
+                                        ...item.selectedAddons.map((addon) => Padding(
+                                          padding: const EdgeInsets.only(left: 16, bottom: 4),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  '+ ${addon.name} x${addon.quantity}',
+                                                  style: TextStyle(
+                                                    fontSize: 13,
+                                                    color: AppColors.textSecondary,
+                                                    fontStyle: FontStyle.italic,
+                                                  ),
+                                                ),
+                                              ),
+                                              Text(
+                                                '₱${(addon.totalCents / 100).toStringAsFixed(2)}',
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: AppColors.textSecondary,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        )),
+                                      if (hasAddons)
+                                        Padding(
+                                          padding: const EdgeInsets.only(left: 16, bottom: 8),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                'Item Total',
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.textPrimary,
+                                                ),
+                                              ),
+                                              Text(
+                                                '₱${(item.lineTotalCents / 100).toStringAsFixed(2)}',
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.textPrimary,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  );
+                                }),
                                 const Divider(),
                                 
                                 Row(

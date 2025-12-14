@@ -7,6 +7,7 @@ import '../models/menu_addon.dart';
 import '../models/cart_item.dart';
 import '../models/merchant.dart';
 import '../theme/app_colors.dart';
+import '../app.dart';
 import 'cart_page.dart';
 
 class MerchantDetailPage extends StatefulWidget {
@@ -227,9 +228,13 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                                   items: _categories.map((category) {
                                     return DropdownMenuItem<String>(
                                       value: category,
-                                      child: Text(category),
+                                      child: Text(
+                                        category,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     );
                                   }).toList(),
+                                  isExpanded: true,
                                   onChanged: (category) {
                                     setState(() {
                                       _selectedCategory = category;
@@ -604,10 +609,10 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                   },
                 ),
                 if (cartCount > 0)
-                  IgnorePointer(
-                    child: Positioned(
-                      right: 4,
-                      top: 4,
+                  Positioned(
+                    right: 4,
+                    top: 4,
+                    child: IgnorePointer(
                       child: Container(
                         padding: const EdgeInsets.all(4),
                         decoration: const BoxDecoration(
@@ -1123,12 +1128,16 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.9,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               
               Container(
                 margin: const EdgeInsets.only(top: 12, bottom: 8),
@@ -1288,15 +1297,14 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                                   ),
                                 ],
                               ),
-                              secondary: addon.isRequired
-                                  ? null
-                                  : (isSelected && !addon.isRequired)
+                              secondary: (isSelected || addon.isRequired)
                                       ? Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             IconButton(
                                               icon: const Icon(Icons.remove_circle_outline, size: 20),
-                                              onPressed: addonQuantity > 1
+                                              onPressed: (addonQuantity > 1 && !addon.isRequired) || 
+                                                         (addonQuantity > 1 && addon.isRequired)
                                                   ? () {
                                                       setModalState(() {
                                                         selectedAddons[addon.id] = 
@@ -1424,7 +1432,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                       final basePrice = item.priceCents * quantity;
                       final addonsPrice = selectedAddonsList.fold(
                         0,
-                        (sum, addon) => sum + (addon.totalCents * quantity),
+                        (sum, addon) => sum + addon.totalCents,
                       );
                       final totalPrice = (basePrice + addonsPrice) / 100;
                       
@@ -1440,30 +1448,41 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                         setState(() {});
                       }
                       
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            quantity > 1
-                                ? '${item.name} (x$quantity) added to cart!'
-                                : '${item.name} added to cart!',
-                          ),
-                          backgroundColor: AppColors.primary,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          duration: const Duration(seconds: 2),
-                          action: _cartService.itemCount > 0
-                              ? SnackBarAction(
-                                  label: 'View Cart',
-                                  textColor: Colors.white,
-                                  onPressed: () {
-                                    Navigator.of(context).pushNamed(CartPage.routeName);
-                                  },
-                                )
-                              : null,
-                        ),
-                      );
+                      // Show snackbar after modal is closed to ensure proper context
+                      if (mounted) {
+                        Future.delayed(const Duration(milliseconds: 100), () {
+                          if (!mounted) return;
+                          final messenger = ScaffoldMessenger.of(context);
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                quantity > 1
+                                    ? '${item.name} (x$quantity) added to cart!'
+                                    : '${item.name} added to cart!',
+                              ),
+                              backgroundColor: AppColors.primary,
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              duration: const Duration(seconds: 2),
+                              action: _cartService.itemCount > 0
+                                  ? SnackBarAction(
+                                      label: 'View Cart',
+                                      textColor: Colors.white,
+                                      onPressed: () {
+                                        // Use the global navigator key to avoid deactivated widget context issues
+                                        final navigator = BuyerApp.navigatorKey.currentState;
+                                        if (navigator != null) {
+                                          navigator.pushNamed(CartPage.routeName);
+                                        }
+                                      },
+                                    )
+                                  : null,
+                            ),
+                          );
+                        });
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
@@ -1479,7 +1498,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                           0,
                           (sum, entry) {
                             final addon = item.addons.firstWhere((a) => a.id == entry.key);
-                            return sum + (addon.priceCents * entry.value * quantity);
+                            return sum + (addon.priceCents * entry.value);
                           },
                         );
                         final totalPrice = (basePrice + addonsPrice) / 100;
@@ -1506,7 +1525,8 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                   ),
                 ),
               ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

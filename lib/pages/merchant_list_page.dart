@@ -128,15 +128,6 @@ class _MerchantListPageState extends State<MerchantListPage> {
       
       final allDeliveries = await _service.getCustomerDeliveries(customerId: user.id);
       
-      debugPrint('=== Active Orders Debug ===');
-      debugPrint('Total deliveries fetched: ${allDeliveries.length}');
-      for (var delivery in allDeliveries) {
-        final status = delivery['status']?.toString().toLowerCase() ?? '';
-        debugPrint('Order ID: ${delivery['id']}, Status: $status');
-      }
-      
-      
-      
       final ongoingOrders = allDeliveries.where((d) {
         final statusRaw = d['status'];
         final status = (statusRaw?.toString().toLowerCase() ?? '').trim();
@@ -151,7 +142,6 @@ class _MerchantListPageState extends State<MerchantListPage> {
         return isOngoing;
       }).toList();
       
-      debugPrint('Ongoing orders count: ${ongoingOrders.length}');
       return ongoingOrders;
     } catch (e) {
       debugPrint('Error loading active orders: $e');

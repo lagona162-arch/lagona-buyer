@@ -16,11 +16,14 @@ import 'pages/login_page.dart';
 import 'pages/register_page.dart';
 
 class BuyerApp extends StatelessWidget {
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  
   const BuyerApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'Lagona Buyer',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

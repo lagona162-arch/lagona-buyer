@@ -1035,6 +1035,14 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         if (subtotal is num) {
           totalAmount += subtotal.toDouble();
         }
+        // Add add-ons subtotal
+        final addons = item['delivery_item_addons'] as List<dynamic>? ?? [];
+        for (final addon in addons) {
+          final addonSubtotal = addon['subtotal'];
+          if (addonSubtotal is num) {
+            totalAmount += addonSubtotal.toDouble();
+          }
+        }
       }
       debugPrint('Total from items: $totalAmount');
       

@@ -234,34 +234,7 @@ class SupabaseService {
       final lng = (row['longitude'] as num?)?.toDouble();
       
       
-      if (lat != null && lng != null) {
-        
-        if (address == null || address.isEmpty || _looksLikeCoordinates(address)) {
-          try {
-            final geocodedAddress = await _reverseGeocode(lat, lng);
-            if (geocodedAddress != null && geocodedAddress.isNotEmpty) {
-              address = geocodedAddress;
-            }
-          } catch (e) {
-            debugPrint('Error reverse geocoding merchant address: $e');
-          }
-        }
-        
-        
-        if (address == null || address.isEmpty || _looksLikeCoordinates(address)) {
-          
-          try {
-            final simpleAddress = await _reverseGeocodeSimple(lat, lng);
-            if (simpleAddress != null && simpleAddress.isNotEmpty) {
-              address = simpleAddress;
-            }
-          } catch (e) {
-            debugPrint('Error in simple reverse geocoding: $e');
-          }
-        }
-      }
-      
-      
+      // Use coordinates format if address is missing
       if (address == null || address.isEmpty || _looksLikeCoordinates(address)) {
         if (lat != null && lng != null) {
           address = 'Location at ${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
@@ -302,37 +275,9 @@ class SupabaseService {
       
       
       
-      if (lat != null && lng != null) {
-        
-        if (address == null || address.isEmpty || _looksLikeCoordinates(address)) {
-          try {
-            final geocodedAddress = await _reverseGeocode(lat, lng);
-            if (geocodedAddress != null && geocodedAddress.isNotEmpty) {
-              address = geocodedAddress;
-            }
-          } catch (e) {
-            debugPrint('Error reverse geocoding merchant address: $e');
-          }
-        }
-        
-        
-        if (address == null || address.isEmpty || _looksLikeCoordinates(address)) {
-          
-          try {
-            final simpleAddress = await _reverseGeocodeSimple(lat, lng);
-            if (simpleAddress != null && simpleAddress.isNotEmpty) {
-              address = simpleAddress;
-            }
-          } catch (e) {
-            debugPrint('Error in simple reverse geocoding: $e');
-          }
-        }
-      }
-      
-      
+      // Use coordinates format if address is missing
       if (address == null || address.isEmpty || _looksLikeCoordinates(address)) {
         if (lat != null && lng != null) {
-          
           address = 'Location at ${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
         } else {
           address = 'Address not available';
@@ -403,6 +348,7 @@ class SupabaseService {
             category,
             price,
             stock,
+            image_url,
             product_addons (
               id,
               product_id,
@@ -420,25 +366,62 @@ class SupabaseService {
       try {
         final rows = await query;
 
+        // Extract product IDs
+        final productIds = (rows as List).map((e) => e['id'] as String).toList();
+        
+        // Fetch addons separately for all products
+        Map<String, List<dynamic>> addonsMap = {};
+        if (productIds.isNotEmpty) {
+          try {
+            // Build OR query for multiple product_ids
+            var addonsQuery = _client.from('product_addons').select('*');
+            if (productIds.length == 1) {
+              addonsQuery = addonsQuery.eq('product_id', productIds.first);
+            } else {
+              // Build OR conditions: product_id = id1 OR product_id = id2 OR ...
+              final orConditions = productIds
+                  .map((id) => 'product_id.eq.$id')
+                  .join(',');
+              addonsQuery = addonsQuery.or(orConditions);
+            }
+            
+            final allAddons = await addonsQuery;
+            
+            // Group addons by product_id
+            for (final addon in allAddons) {
+              final productId = addon['product_id'] as String;
+              addonsMap.putIfAbsent(productId, () => []).add(addon);
+            }
+          } catch (e) {
+            // Silently fail - addons will be empty
+          }
+        }
+
         final products = (rows as List).map((e) {
           final productData = Map<String, dynamic>.from(e);
+          final productId = productData['id'] as String;
           
-          // Handle addons
-          if (productData['product_addons'] == null) {
-            productData['addons'] = [];
-          } else {
-            final addons = productData['product_addons'];
-            if (addons is List) {
-              productData['addons'] = addons.where((a) => a != null).toList();
-            } else {
-              productData['addons'] = [];
-            }
+          // Handle addons - first try from relationship, then from separate query
+          dynamic addonsData;
+          if (productData.containsKey('product_addons')) {
+            addonsData = productData['product_addons'];
+          } else if (productData.containsKey('addons')) {
+            addonsData = productData['addons'];
           }
           
-          // Handle optional photo_url
-          final photoUrl = productData['photo_url'] as String?;
-          if (photoUrl != null && photoUrl is String && photoUrl.isNotEmpty) {
-            productData['photo_url'] = _convertToPublicUrl(photoUrl, 'product-images');
+          List<dynamic> finalAddons = [];
+          if (addonsData is List && addonsData.isNotEmpty) {
+            finalAddons = addonsData.where((a) => a != null).toList();
+          } else if (addonsMap.containsKey(productId)) {
+            finalAddons = addonsMap[productId]!;
+          }
+          
+          productData['addons'] = finalAddons;
+          
+          // Handle optional image_url
+          final imageUrl = productData['image_url'] as String?;
+          if (imageUrl != null && imageUrl is String && imageUrl.isNotEmpty) {
+            productData['photo_url'] = _convertToPublicUrl(imageUrl, 'product-images');
           } else {
             productData['photo_url'] = null;
           }
@@ -453,7 +436,7 @@ class SupabaseService {
         // Fallback: Simple query without addons
         final simpleQueryBuilder = _client
         .from('merchant_products')
-        .select('id,merchant_id,name,category,price,stock')
+        .select('id,merchant_id,name,category,price,stock,image_url')
         .eq('merchant_id', merchantId);
         
         final simpleQuery = (category != null && category.isNotEmpty)
@@ -465,7 +448,15 @@ class SupabaseService {
         return (rows as List).map((e) {
           final productData = Map<String, dynamic>.from(e);
           productData['addons'] = [];
-          productData['photo_url'] = null;
+          
+          // Handle optional image_url
+          final imageUrl = productData['image_url'] as String?;
+          if (imageUrl != null && imageUrl is String && imageUrl.isNotEmpty) {
+            productData['photo_url'] = _convertToPublicUrl(imageUrl, 'product-images');
+          } else {
+            productData['photo_url'] = null;
+          }
+          
           return MenuItem.fromMap(productData);
         }).toList();
       }
@@ -492,6 +483,7 @@ class SupabaseService {
               category,
               price,
               stock,
+              image_url,
               product_addons (
                 id,
                 product_id,
@@ -508,20 +500,24 @@ class SupabaseService {
           // Handle addons - some products may not have addons yet
           if (productData['product_addons'] == null) {
             productData['addons'] = [];
+            debugPrint('⚠️ No product_addons found for product ${productData['name']}');
           } else {
             // Filter out null addons and ensure we have a list
             final addons = productData['product_addons'];
             if (addons is List) {
-              productData['addons'] = addons.where((a) => a != null).toList();
+              final filteredAddons = addons.where((a) => a != null).toList();
+              productData['addons'] = filteredAddons;
+              debugPrint('✅ Found ${filteredAddons.length} addons for product ${productData['name']}');
             } else {
               productData['addons'] = [];
+              debugPrint('⚠️ product_addons is not a List for product ${productData['name']}');
             }
           }
           
-          // Handle optional photo_url if it exists (some products may not have photos yet)
-          final photoUrl = productData['photo_url'] as String?;
-          if (photoUrl != null && photoUrl is String && photoUrl.isNotEmpty) {
-            productData['photo_url'] = _convertToPublicUrl(photoUrl, 'product-images');
+          // Handle optional image_url if it exists (some products may not have photos yet)
+          final imageUrl = productData['image_url'] as String?;
+          if (imageUrl != null && imageUrl is String && imageUrl.isNotEmpty) {
+            productData['photo_url'] = _convertToPublicUrl(imageUrl, 'product-images');
           } else {
             productData['photo_url'] = null;
           }
@@ -538,14 +534,21 @@ class SupabaseService {
       // Fallback: Simple query without addons for products that don't have them yet
       final rows = await _client
           .from('merchant_products')
-          .select('id,merchant_id,name,category,price,stock')
+          .select('id,merchant_id,name,category,price,stock,image_url')
           .eq('merchant_id', merchantId)
           .order('category', ascending: true);
 
       return (rows as List).map((e) {
         final productData = Map<String, dynamic>.from(e);
         productData['addons'] = [];
-        productData['photo_url'] = null; // photo_url may not exist in the table
+        
+        // Handle optional photo_url
+        final photoUrl = productData['photo_url'] as String?;
+        if (photoUrl != null && photoUrl is String && photoUrl.isNotEmpty) {
+          productData['photo_url'] = _convertToPublicUrl(photoUrl, 'product-images');
+        } else {
+          productData['photo_url'] = null;
+        }
         
         return MenuItem.fromMap(productData);
       }).toList();
@@ -596,98 +599,6 @@ class SupabaseService {
   }
 
   
-  Future<String?> _reverseGeocode(double latitude, double longitude) async {
-    try {
-      final apiKey = MapsConfig.apiKey;
-      final uri = Uri.https(
-        'maps.googleapis.com',
-        '/maps/api/geocode/json',
-        {
-          'latlng': '$latitude,$longitude',
-          'key': apiKey,
-          'result_type': 'street_address|premise|route|sublocality|locality|administrative_area_level_1',
-          'language': 'en',
-        },
-      );
-
-      final response = await http.get(uri);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body) as Map<String, dynamic>;
-        final results = (data['results'] as List?) ?? [];
-        if (results.isNotEmpty) {
-          
-          
-          final formattedAddress = results.first['formatted_address'] as String?;
-          
-          if (formattedAddress != null && formattedAddress.isNotEmpty) {
-            
-            String address = formattedAddress;
-            
-            
-            final addressComponents = results.first['address_components'] as List?;
-            if (addressComponents != null) {
-              String? locality;
-              String? sublocality;
-              String? route;
-              String? streetNumber;
-              String? administrativeAreaLevel1;
-              
-              for (final component in addressComponents) {
-                final types = component['types'] as List?;
-                if (types != null) {
-                  if (types.contains('locality')) {
-                    locality = component['long_name'] as String?;
-                  } else if (types.contains('sublocality') || types.contains('sublocality_level_1')) {
-                    sublocality = component['long_name'] as String?;
-                  } else if (types.contains('route')) {
-                    route = component['long_name'] as String?;
-                  } else if (types.contains('street_number')) {
-                    streetNumber = component['long_name'] as String?;
-                  } else if (types.contains('administrative_area_level_1')) {
-                    administrativeAreaLevel1 = component['short_name'] as String?;
-                  }
-                }
-              }
-              
-              
-              final addressParts = <String>[];
-              if (streetNumber != null && route != null) {
-                addressParts.add('$streetNumber $route');
-              } else if (route != null) {
-                addressParts.add(route);
-              }
-              
-              if (sublocality != null) {
-                addressParts.add(sublocality);
-              } else if (locality != null) {
-                addressParts.add(locality);
-              }
-              
-              if (administrativeAreaLevel1 != null && addressParts.isNotEmpty) {
-                
-                address = addressParts.join(', ');
-                if (administrativeAreaLevel1.isNotEmpty) {
-                  address += ', $administrativeAreaLevel1';
-                }
-              } else if (addressParts.isNotEmpty) {
-                address = addressParts.join(', ');
-              }
-            }
-            
-            debugPrint('✅ Reverse geocoded: $latitude,$longitude -> $address');
-            return address;
-          }
-        }
-      }
-      debugPrint('⚠️ Reverse geocoding failed or no results for $latitude,$longitude');
-      return null;
-    } catch (e) {
-      debugPrint('❌ Error in reverse geocoding: $e');
-      return null;
-    }
-  }
-
-  
   bool _looksLikeCoordinates(String? value) {
     if (value == null || value.trim().isEmpty) return false;
     final trimmed = value.trim();
@@ -698,45 +609,6 @@ class SupabaseService {
     return coordPattern.hasMatch(trimmed) || locationAtPattern.hasMatch(trimmed);
   }
   
-  
-  Future<String?> _reverseGeocodeSimple(double latitude, double longitude) async {
-    try {
-      final apiKey = MapsConfig.apiKey;
-      final uri = Uri.https(
-        'maps.googleapis.com',
-        '/maps/api/geocode/json',
-        {
-          'latlng': '$latitude,$longitude',
-          'key': apiKey,
-          'result_type': 'locality|sublocality|neighborhood|route|premise',
-          'language': 'en',
-        },
-      );
-
-      final response = await http.get(uri);
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body) as Map<String, dynamic>;
-        final results = (data['results'] as List?) ?? [];
-        if (results.isNotEmpty) {
-          
-          final formattedAddress = results.first['formatted_address'] as String?;
-          if (formattedAddress != null && formattedAddress.isNotEmpty) {
-            
-            final parts = formattedAddress.split(',');
-            if (parts.isNotEmpty) {
-              return parts.first.trim();
-            }
-            return formattedAddress;
-          }
-        }
-      }
-      return null;
-    } catch (e) {
-      debugPrint('Error in simple reverse geocoding: $e');
-      return null;
-    }
-  }
-
   
   Future<String> createOrder({
     required String customerId,
@@ -752,7 +624,29 @@ class SupabaseService {
       debugPrint('=== Creating Delivery ===');
       debugPrint('Customer ID: $customerId');
       debugPrint('Merchant ID: $merchantId');
-      debugPrint('Items: ${items.length}');
+      debugPrint('Total Items Count: ${items.length}');
+      
+      // Log all items with their details
+      for (int i = 0; i < items.length; i++) {
+        final item = items[i];
+        debugPrint('📦 Item ${i + 1}:');
+        debugPrint('   - Product ID: ${item['menu_item_id']}');
+        debugPrint('   - Name: ${item['name']}');
+        debugPrint('   - Price (cents): ${item['price_cents']}');
+        debugPrint('   - Quantity: ${item['quantity']}');
+        final addons = item['addons'] as List<dynamic>? ?? [];
+        debugPrint('   - Add-ons Count: ${addons.length}');
+        if (addons.isNotEmpty) {
+          for (int j = 0; j < addons.length; j++) {
+            final addon = addons[j];
+            debugPrint('      ➕ Add-on ${j + 1}:');
+            debugPrint('         - Addon ID: ${addon['addon_id']}');
+            debugPrint('         - Name: ${addon['name']}');
+            debugPrint('         - Price (cents): ${addon['price_cents']}');
+            debugPrint('         - Quantity: ${addon['quantity']}');
+          }
+        }
+      }
 
       
       Map<String, dynamic> customerData;
@@ -796,37 +690,18 @@ class SupabaseService {
       String? dropoffAddress = customerAddress;
 
       
+      // Use coordinates format if addresses are missing
       if ((pickupAddress == null || pickupAddress.isEmpty || pickupAddress.length < 10) &&
           merchantLat != null && merchantLng != null) {
-        debugPrint('Merchant address is missing or vague, using reverse geocoding...');
-        pickupAddress = await _reverseGeocode(
-          merchantLat.toDouble(),
-          merchantLng.toDouble(),
-        );
-        
-        pickupAddress ??= merchantAddress ?? 'Unknown location';
+        pickupAddress = 'Location at ${merchantLat.toStringAsFixed(6)}, ${merchantLng.toStringAsFixed(6)}';
       }
 
       
       if (_looksLikeCoordinates(dropoffAddress) && customerLat != null && customerLng != null) {
-        debugPrint('Customer address appears to be coordinates, using reverse geocoding...');
-        dropoffAddress = await _reverseGeocode(
-          customerLat.toDouble(),
-          customerLng.toDouble(),
-        );
-        
-        if (dropoffAddress == null) {
-          dropoffAddress = 'Location at ${customerLat.toStringAsFixed(6)}, ${customerLng.toStringAsFixed(6)}';
-        }
+        dropoffAddress = 'Location at ${customerLat.toStringAsFixed(6)}, ${customerLng.toStringAsFixed(6)}';
       } else if ((dropoffAddress == null || dropoffAddress.isEmpty) &&
           customerLat != null && customerLng != null) {
-        debugPrint('Customer address is missing, using reverse geocoding...');
-        dropoffAddress = await _reverseGeocode(
-          customerLat.toDouble(),
-          customerLng.toDouble(),
-        );
-        
-        dropoffAddress ??= 'Location at ${customerLat.toStringAsFixed(6)}, ${customerLng.toStringAsFixed(6)}';
+        dropoffAddress = 'Location at ${customerLat.toStringAsFixed(6)}, ${customerLng.toStringAsFixed(6)}';
       }
 
       
@@ -894,23 +769,95 @@ class SupabaseService {
       debugPrint('✅ Delivery created with ID: $deliveryId');
 
       
-      final deliveryItems = items.map<Map<String, dynamic>>((item) {
+      // Insert delivery items and get their IDs to link add-ons
+      final List<Map<String, dynamic>> deliveryItemsWithIds = [];
+      
+      for (int i = 0; i < items.length; i++) {
+        final item = items[i];
         final priceCents = item['price_cents'] as int;
         final quantity = item['quantity'] as int;
-        final subtotal = priceCents * quantity; 
+        final subtotal = priceCents * quantity;
+        final addons = item['addons'] as List<dynamic>? ?? [];
+        final productName = item['name'] as String? ?? 'Unknown Product';
 
-        return {
+        debugPrint('💾 Saving Product ${i + 1}: $productName');
+        debugPrint('   - Product ID: ${item['menu_item_id']}');
+        debugPrint('   - Quantity: $quantity');
+        debugPrint('   - Price per unit: ₱${(priceCents / 100).toStringAsFixed(2)}');
+        debugPrint('   - Subtotal: ₱${(subtotal / 100).toStringAsFixed(2)}');
+
+        // Insert delivery item and get its ID
+        final deliveryItemData = {
           'delivery_id': deliveryId,
-          'product_id': item['menu_item_id'], 
+          'product_id': item['menu_item_id'],
           'quantity': quantity,
-          'subtotal': subtotal / 100.0, 
+          'subtotal': subtotal / 100.0,
         };
-      }).toList();
+        
+        debugPrint('   - Inserting into delivery_items: $deliveryItemData');
+        final deliveryItemResponse = await _client
+            .from('delivery_items')
+            .insert(deliveryItemData)
+            .select('id')
+            .single();
 
-      await _client.from('delivery_items').insert(deliveryItems);
-      debugPrint('✅ Delivery items created: ${deliveryItems.length}');
+        final deliveryItemId = deliveryItemResponse['id'] as String;
+        debugPrint('   ✅ Product saved! Delivery Item ID: $deliveryItemId');
+        
+        deliveryItemsWithIds.add({
+          'id': deliveryItemId,
+          'addons': addons,
+        });
 
-      debugPrint('=== Delivery Creation Complete ===');
+        // Insert add-ons for this delivery item if any
+        if (addons.isNotEmpty) {
+          debugPrint('   📝 Saving ${addons.length} add-on(s) for $productName:');
+          
+          final deliveryItemAddons = addons.map<Map<String, dynamic>>((addon) {
+            final addonPriceCents = addon['price_cents'] as int;
+            final addonQuantity = addon['quantity'] as int;
+            final addonSubtotal = addonPriceCents * addonQuantity;
+            final addonName = addon['name'] as String? ?? 'Unknown Addon';
+
+            debugPrint('      ➕ Add-on: $addonName');
+            debugPrint('         - Addon ID: ${addon['addon_id']}');
+            debugPrint('         - Quantity: $addonQuantity');
+            debugPrint('         - Price per unit: ₱${(addonPriceCents / 100).toStringAsFixed(2)}');
+            debugPrint('         - Subtotal: ₱${(addonSubtotal / 100).toStringAsFixed(2)}');
+
+            return {
+              'delivery_item_id': deliveryItemId,
+              'addon_id': addon['addon_id'],
+              'name': addonName,
+              'price': addonPriceCents / 100.0,
+              'quantity': addonQuantity,
+              'subtotal': addonSubtotal / 100.0,
+            };
+          }).toList();
+
+          debugPrint('   - Inserting ${deliveryItemAddons.length} add-on(s) into delivery_item_addons');
+          await _client.from('delivery_item_addons').insert(deliveryItemAddons);
+          debugPrint('   ✅ All ${deliveryItemAddons.length} add-on(s) saved successfully for $productName');
+        } else {
+          debugPrint('   ℹ️  No add-ons for $productName');
+        }
+      }
+
+      debugPrint('✅ All delivery items created: ${deliveryItemsWithIds.length}');
+      
+      // Final summary
+      int totalAddonsCount = 0;
+      for (final itemWithId in deliveryItemsWithIds) {
+        final addons = itemWithId['addons'] as List<dynamic>? ?? [];
+        totalAddonsCount += addons.length;
+      }
+      
+      debugPrint('📊 Order Summary:');
+      debugPrint('   - Total Products: ${deliveryItemsWithIds.length}');
+      debugPrint('   - Total Add-ons: $totalAddonsCount');
+      debugPrint('   - Delivery ID: $deliveryId');
+
+      debugPrint('=== ✅ Delivery Creation Complete ===');
       return deliveryId;
     } catch (e, stackTrace) {
       debugPrint('❌ Error creating delivery:');
@@ -1078,6 +1025,14 @@ class SupabaseService {
                 id,
                 name,
                 price
+              ),
+              delivery_item_addons (
+                id,
+                addon_id,
+                name,
+                price,
+                quantity,
+                subtotal
               )
             )
           ''')
@@ -1185,10 +1140,6 @@ class SupabaseService {
     String? status,
   }) async {
     try {
-      debugPrint('=== Fetching Customer Deliveries ===');
-      debugPrint('Customer ID: $customerId');
-      debugPrint('Status filter: ${status ?? 'all'}');
-
       var query = _client
           .from('deliveries')
           .select('''
@@ -1207,6 +1158,14 @@ class SupabaseService {
                 id,
                 name,
                 price
+              ),
+              delivery_item_addons (
+                id,
+                addon_id,
+                name,
+                price,
+                quantity,
+                subtotal
               )
             )
           ''')
@@ -1217,9 +1176,6 @@ class SupabaseService {
       }
 
       final deliveries = await query.order('created_at', ascending: false);
-
-      debugPrint('✅ Found ${deliveries.length} deliveries');
-      
       
       final mappedDeliveries = deliveries.map<Map<String, dynamic>>((delivery) {
         final deliveryMap = Map<String, dynamic>.from(delivery);
@@ -1682,5 +1638,6 @@ class SupabaseService {
     }
   }
 }
+
 
 

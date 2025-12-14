@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_colors.dart';
 import '../services/supabase_service.dart';
 import '../widgets/buyer_loading.dart';
+import '../utils/error_dialog.dart';
 import 'register_page.dart';
 import 'service_selection_page.dart';
 
@@ -94,12 +95,7 @@ class _LoginPageState extends State<LoginPage> {
       Navigator.of(context).pushReplacementNamed(ServiceSelectionPage.routeName);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Login failed: ${e.toString().replaceAll('Exception: ', '')}'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      await showErrorDialog(context, e, title: 'Login Failed');
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
