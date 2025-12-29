@@ -464,7 +464,11 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _navigateToEditAddress() {
-    Navigator.of(context).pushNamed(CustomerRegistrationPage.routeName).then(
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const CustomerRegistrationPage(isEditMode: true),
+      ),
+    ).then(
       (_) => _loadUserData(), 
     );
   }

@@ -38,16 +38,57 @@ class CartService extends ChangeNotifier {
       _merchantId = menuItem.merchantId;
     }
 
-    // Check if exact item with same addons exists
+    // Find existing item with same product ID (regardless of addons)
     final existingIndex = _items.indexWhere(
-      (item) => item.menuItemId == menuItem.id && item.hasSameAddons(selectedAddons),
+      (item) => item.menuItemId == menuItem.id,
     );
 
     if (existingIndex >= 0) {
+      // Merge: update quantity and merge addons
+      final existingItem = _items[existingIndex];
       
-      _items[existingIndex].quantity += quantity;
+      // Merge addons by addonId, summing quantities
+      final mergedAddons = <String, SelectedAddon>{};
+      
+      // Add existing addons
+      for (final addon in existingItem.selectedAddons) {
+        mergedAddons[addon.addonId] = SelectedAddon(
+          addonId: addon.addonId,
+          name: addon.name,
+          priceCents: addon.priceCents,
+          quantity: addon.quantity,
+        );
+      }
+      
+      // Merge new addons
+      for (final addon in selectedAddons) {
+        if (mergedAddons.containsKey(addon.addonId)) {
+          // Add to existing addon quantity
+          final existingAddon = mergedAddons[addon.addonId]!;
+          mergedAddons[addon.addonId] = SelectedAddon(
+            addonId: existingAddon.addonId,
+            name: existingAddon.name,
+            priceCents: existingAddon.priceCents,
+            quantity: existingAddon.quantity + addon.quantity,
+          );
+        } else {
+          // Add new addon
+          mergedAddons[addon.addonId] = addon;
+        }
+      }
+      
+      // Update the existing item with merged data
+      _items[existingIndex] = CartItem(
+        menuItemId: existingItem.menuItemId,
+        name: existingItem.name,
+        description: existingItem.description,
+        photoUrl: existingItem.photoUrl,
+        priceCents: existingItem.priceCents,
+        quantity: existingItem.quantity + quantity,
+        selectedAddons: mergedAddons.values.toList(),
+      );
     } else {
-      
+      // Add new item
       _items.add(CartItem(
         menuItemId: menuItem.id,
         name: menuItem.name,

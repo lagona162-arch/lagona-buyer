@@ -1009,8 +1009,6 @@ class SupabaseService {
   
   Future<Map<String, dynamic>?> getDeliveryById(String deliveryId) async {
     try {
-      debugPrint('=== Fetching Delivery Details ===');
-      debugPrint('Delivery ID: $deliveryId');
 
       
       final delivery = await _client
@@ -1046,9 +1044,6 @@ class SupabaseService {
         return null;
       }
 
-      debugPrint('✅ Delivery fetched');
-      debugPrint('Status: ${delivery['status']}');
-      debugPrint('Rider ID: ${delivery['rider_id']}');
 
       
       final riderId = delivery['rider_id'] as String?;
@@ -1062,7 +1057,6 @@ class SupabaseService {
 
           if (rider != null) {
             delivery['riders'] = rider;
-            debugPrint('Rider location: ${rider['latitude']}, ${rider['longitude']}');
           }
         } catch (e) {
           debugPrint('⚠️ Error fetching rider details: $e');
@@ -1211,7 +1205,7 @@ class SupabaseService {
       
       final delivery = await _client
           .from('deliveries')
-          .select('id, customer_id, status')
+          .select('id, customer_id, status, type')
           .eq('id', deliveryId)
           .single();
 
@@ -1221,10 +1215,18 @@ class SupabaseService {
 
       final currentStatus = delivery['status']?.toString().toLowerCase() ?? '';
       
+      // Check delivery type to determine valid status
+      final deliveryType = delivery['type']?.toString().toLowerCase() ?? '';
       
+      // For Padala (parcel) deliveries, status should be 'dropoff'
+      // For food deliveries, status should be 'delivered'
+      final isValidStatus = deliveryType == 'parcel' 
+          ? currentStatus == 'dropoff' || currentStatus == 'drop_off'
+          : currentStatus == 'delivered';
       
-      if (currentStatus != 'delivered') {
-        throw Exception('Delivery must be delivered before it can be marked as completed');
+      if (!isValidStatus) {
+        final expectedStatus = deliveryType == 'parcel' ? 'dropoff' : 'delivered';
+        throw Exception('Delivery must be ${expectedStatus} before it can be marked as completed. Current status: $currentStatus');
       }
 
       
@@ -1369,6 +1371,26 @@ class SupabaseService {
       debugPrint('Error type: ${e.runtimeType}');
       debugPrint('Error message: $e');
       debugPrint('Stack trace: $stackTrace');
+      debugPrint('Delivery ID: $deliveryId');
+      debugPrint('Customer ID: $customerId');
+      debugPrint('Reference Number: $referenceNumber');
+      debugPrint('Amount: $amount');
+      debugPrint('Sender Name: $senderName');
+      try {
+        debugPrint('Payment Image path: ${paymentImage.path}');
+        final exists = await paymentImage.exists();
+        debugPrint('Payment Image exists: $exists');
+        if (exists) {
+          try {
+            final fileSize = await paymentImage.length();
+            debugPrint('Payment Image size: $fileSize bytes');
+          } catch (sizeError) {
+            debugPrint('⚠️ Could not get file size: $sizeError');
+          }
+        }
+      } catch (fileError) {
+        debugPrint('⚠️ Could not access payment image file: $fileError');
+      }
       rethrow;
     }
   }
@@ -1392,6 +1414,7 @@ class SupabaseService {
     String? recipientNotes,
     String? packageDescription,
     double? deliveryFee,
+    String? parcelPhotoUrl,
   }) async {
     try {
       debugPrint('=== Creating Padala Booking ===');
@@ -1419,6 +1442,10 @@ class SupabaseService {
         padalaDetails['package_description'] = packageDescription.trim();
       }
 
+      if (parcelPhotoUrl != null && parcelPhotoUrl.trim().isNotEmpty) {
+        padalaDetails['parcel_photo_url'] = parcelPhotoUrl.trim();
+      }
+
       final padalaData = <String, dynamic>{
         'type': 'parcel',
         'customer_id': customerId,
@@ -1429,13 +1456,17 @@ class SupabaseService {
         'dropoff_address': dropoffAddress,
         'dropoff_latitude': dropoffLatitude,
         'dropoff_longitude': dropoffLongitude,
-        'delivery_notes': jsonEncode(padalaDetails), // Store Padala details as JSON
+        'delivery_notes': jsonEncode(padalaDetails), // Store Padala details as JSON (including parcel_photo_url)
         'created_at': DateTime.now().toIso8601String(),
       };
 
       if (deliveryFee != null && deliveryFee > 0) {
         padalaData['delivery_fee'] = deliveryFee;
       }
+      
+      // NOTE: Do NOT store parcel photo in pickup_photo_url
+      // The parcel photo (taken by customer) is stored in delivery_notes JSON as parcel_photo_url
+      // The pickup_photo_url field is reserved for the rider's pickup photo
 
       // Calculate distance for logging (not saved to database)
       final distance = _calculateDistance(
@@ -1561,7 +1592,86 @@ class SupabaseService {
     }
   }
 
-  /// Assign rider to Padala delivery
+  /// Create a delivery offer for Padala (rider must accept)
+  Future<void> createPadalaDeliveryOffer({
+    required String padalaId,
+    required String riderId,
+  }) async {
+    try {
+      debugPrint('=== Creating Padala Delivery Offer ===');
+      debugPrint('Padala ID: $padalaId');
+      debugPrint('Rider ID: $riderId');
+
+      // Set offer expiration to 2 minutes from now
+      final expiresAt = DateTime.now().add(const Duration(minutes: 2));
+
+      // Check if there's already a pending offer for this delivery and rider
+      final existingOffer = await _client
+          .from('delivery_offers')
+          .select('id, status')
+          .eq('delivery_id', padalaId)
+          .eq('rider_id', riderId)
+          .eq('status', 'pending')
+          .maybeSingle();
+
+      if (existingOffer != null) {
+        // Update existing offer (reset expiration)
+        debugPrint('⚠️ Pending offer already exists, updating expiration...');
+        await _client
+            .from('delivery_offers')
+            .update({
+              'expires_at': expiresAt.toIso8601String(),
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('id', existingOffer['id']);
+        debugPrint('✅ Delivery offer updated for Padala');
+      } else {
+        // Create new offer
+        await _client
+            .from('delivery_offers')
+            .insert({
+              'delivery_id': padalaId,
+              'rider_id': riderId,
+              'offer_type': 'broadcast',
+              'status': 'pending',
+              'expires_at': expiresAt.toIso8601String(),
+            });
+        debugPrint('✅ Delivery offer created for Padala');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error creating Padala delivery offer:');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Error message: $e');
+      debugPrint('Stack trace: $stackTrace');
+      rethrow;
+    }
+  }
+
+  /// Check if a delivery offer has been accepted and rider is assigned
+  Future<bool> checkDeliveryOfferAccepted({
+    required String deliveryId,
+    required String riderId,
+  }) async {
+    try {
+      // Check if rider is assigned to the delivery (this happens when rider accepts)
+      final delivery = await _client
+          .from('deliveries')
+          .select('rider_id, status')
+          .eq('id', deliveryId)
+          .maybeSingle();
+
+      if (delivery == null) return false;
+      
+      // Rider is assigned if rider_id matches and status is 'accepted'
+      return delivery['rider_id'] == riderId && 
+             (delivery['status'] == 'accepted' || delivery['status'] == 'pending');
+    } catch (e) {
+      debugPrint('❌ Error checking delivery offer: $e');
+      return false;
+    }
+  }
+
+  /// Assign rider to Padala delivery (called after rider accepts offer)
   Future<void> assignRiderToPadala({
     required String padalaId,
     required String riderId,
@@ -1628,7 +1738,16 @@ class SupabaseService {
           .update({'status': 'cancelled'})
           .eq('id', deliveryId);
 
+      // Update all pending delivery offers for this delivery to 'expired'
+      // This prevents riders from seeing cancelled deliveries as available
+      await _client
+          .from('delivery_offers')
+          .update({'status': 'expired'})
+          .eq('delivery_id', deliveryId)
+          .eq('status', 'pending');
+
       debugPrint('✅ Delivery cancelled successfully');
+      debugPrint('✅ Updated associated delivery offers to expired');
     } catch (e, stackTrace) {
       debugPrint('❌ Error cancelling delivery:');
       debugPrint('Error type: ${e.runtimeType}');

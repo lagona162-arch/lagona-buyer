@@ -610,8 +610,8 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                 ),
                 if (cartCount > 0)
                   Positioned(
-                    right: 4,
-                    top: 4,
+                      right: 4,
+                      top: 4,
                     child: IgnorePointer(
                       child: Container(
                         padding: const EdgeInsets.all(4),
@@ -1132,12 +1132,12 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
             maxHeight: MediaQuery.of(context).size.height * 0.9,
           ),
           child: SingleChildScrollView(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               
               Container(
                 margin: const EdgeInsets.only(top: 12, bottom: 8),
@@ -1454,33 +1454,33 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                           if (!mounted) return;
                           final messenger = ScaffoldMessenger.of(context);
                           messenger.showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                quantity > 1
-                                    ? '${item.name} (x$quantity) added to cart!'
-                                    : '${item.name} added to cart!',
-                              ),
-                              backgroundColor: AppColors.primary,
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              duration: const Duration(seconds: 2),
-                              action: _cartService.itemCount > 0
-                                  ? SnackBarAction(
-                                      label: 'View Cart',
-                                      textColor: Colors.white,
-                                      onPressed: () {
+                        SnackBar(
+                          content: Text(
+                            quantity > 1
+                                ? '${item.name} (x$quantity) added to cart!'
+                                : '${item.name} added to cart!',
+                          ),
+                          backgroundColor: AppColors.primary,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          duration: const Duration(seconds: 2),
+                          action: _cartService.itemCount > 0
+                              ? SnackBarAction(
+                                  label: 'View Cart',
+                                  textColor: Colors.white,
+                                  onPressed: () {
                                         // Use the global navigator key to avoid deactivated widget context issues
                                         final navigator = BuyerApp.navigatorKey.currentState;
                                         if (navigator != null) {
                                           navigator.pushNamed(CartPage.routeName);
                                         }
-                                      },
-                                    )
-                                  : null,
-                            ),
-                          );
+                                  },
+                                )
+                              : null,
+                        ),
+                      );
                         });
                       }
                     },
@@ -1525,7 +1525,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                   ),
                 ),
               ),
-              ],
+            ],
             ),
           ),
         ),

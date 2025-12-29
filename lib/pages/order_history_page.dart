@@ -449,19 +449,19 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                         
                         return [
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Row(
-                              children: [
-                                Text(
-                                  '• ',
-                                  style: TextStyle(color: AppColors.textSecondary),
-                                ),
-                                Expanded(
-                                  child: Text(
-                                    '$quantity $productName',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: AppColors.textSecondary,
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Row(
+                            children: [
+                              Text(
+                                '• ',
+                                style: TextStyle(color: AppColors.textSecondary),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  '$quantity $productName',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.textSecondary,
                                     ),
                                   ),
                                 ),
@@ -487,12 +487,12 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                                         fontSize: 12,
                                         color: AppColors.textSecondary,
                                         fontStyle: FontStyle.italic,
-                                      ),
-                                    ),
                                   ),
-                                ],
+                                ),
                               ),
-                            );
+                            ],
+                          ),
+                        );
                           }).toList(),
                         ];
                       }).toList(),

@@ -84,6 +84,89 @@ class _RegisterPageState extends State<RegisterPage> {
     }
   }
 
+  Future<void> _showEmailVerificationModal() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.email, color: AppColors.primary, size: 28),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Check Your Email',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'We\'ve sent a verification email to:',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Text(
+                emailController.text.trim(),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Please check your email and click the verification link to activate your account.',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.info_outline, size: 16, color: Colors.orange[700]),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'You can continue with registration, but you\'ll need to verify your email to complete the process.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.orange[700],
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+    
+    // Auto-close after 5 seconds if user hasn't dismissed it
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+    });
+  }
+
   Future<void> submit() async {
     if (!_formKey.currentState!.validate()) {
       debugPrint('Registration form validation failed');
@@ -103,7 +186,7 @@ class _RegisterPageState extends State<RegisterPage> {
     debugPrint('===========================');
     
     try {
-      await _supabase.signUpWithPassword(
+      final response = await _supabase.signUpWithPassword(
         email: emailController.text.trim(),
         password: passwordController.text,
         firstName: firstNameController.text.trim(),
@@ -118,7 +201,21 @@ class _RegisterPageState extends State<RegisterPage> {
       
       if (!mounted) return;
       
-      Navigator.of(context).pushReplacementNamed(CustomerRegistrationPage.routeName);
+      // Get user ID from response
+      final userId = response.user?.id;
+      debugPrint('User ID from registration: $userId');
+      
+      // Show email verification modal
+      await _showEmailVerificationModal();
+      
+      if (!mounted) return;
+      
+      // Navigate to customer registration page with user ID
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => CustomerRegistrationPage(userId: userId),
+        ),
+      );
     } catch (e, stackTrace) {
       
       debugPrint('❌ Registration Error Occurred:');

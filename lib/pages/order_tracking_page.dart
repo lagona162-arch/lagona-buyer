@@ -271,7 +271,6 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
     if (widget.orderId == null) return;
     
     try {
-      debugPrint('=== Checking payment status ===');
       
       
       final user = Supabase.instance.client.auth.currentUser;
@@ -314,14 +313,9 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                     paymentStatus == 'confirmed' ||
                     deliveryIndicatesApproval;
         
-        debugPrint('Payment status from table: $paymentStatus');
-        debugPrint('Delivery status: $deliveryStatus');
-        debugPrint('Delivery indicates approval: $deliveryIndicatesApproval');
-        debugPrint('Final isApproved: $isApproved');
       } else if (deliveryIndicatesApproval) {
         
         isApproved = true;
-        debugPrint('No payment record, but delivery status ($deliveryStatus) indicates approval');
       }
       
       final wasApproved = _isPaymentApproved;
@@ -332,7 +326,6 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         }
         _isPaymentApproved = isApproved;
       });
-      debugPrint('✅ Payment status: $paymentStatus, Delivery status: $deliveryStatus, Approved: $isApproved');
       
       
       if (isApproved && !wasApproved) {
@@ -1021,8 +1014,25 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
     final nameController = TextEditingController();
     File? paymentImage;
     bool isLoading = false;
-
     
+    // Dispose controllers when dialog closes
+    void disposeControllers() {
+      try {
+        referenceController.dispose();
+      } catch (e) {
+        // Controller already disposed, ignore
+      }
+      try {
+        amountController.dispose();
+      } catch (e) {
+        // Controller already disposed, ignore
+      }
+      try {
+        nameController.dispose();
+      } catch (e) {
+        // Controller already disposed, ignore
+      }
+    }
     
     double totalAmount = 0;
     try {
@@ -1065,8 +1075,16 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black54,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
+      builder: (dialogContext) => WillPopScope(
+        onWillPop: () async {
+          // Dispose controllers after dialog is closed
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            disposeControllers();
+          });
+          return true;
+        },
+        child: StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
           title: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1075,6 +1093,10 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                 icon: const Icon(Icons.close),
                 onPressed: () {
                   Navigator.of(dialogContext).pop();
+                  // Dispose controllers after dialog is closed
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    disposeControllers();
+                  });
                 },
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
@@ -1357,7 +1379,13 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
           ),
           actions: [
             TextButton(
-              onPressed: isLoading ? null : () => Navigator.of(context).pop(),
+              onPressed: isLoading ? null : () {
+                Navigator.of(context).pop();
+                // Dispose controllers after dialog is closed
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  disposeControllers();
+                });
+              },
               child: const Text('Cancel'),
             ),
             ElevatedButton(
@@ -1400,8 +1428,13 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                   );
 
                   if (context.mounted) {
-                    
+                    // Close dialog first, then dispose controllers after dialog is closed
                     Navigator.of(context).pop();
+                    
+                    // Dispose controllers after dialog is closed using post-frame callback
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      disposeControllers();
+                    });
                     
                     setState(() {
                       _hasSubmittedPayment = true;
@@ -1421,14 +1454,25 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                     
                     _loadDelivery();
                   }
-                } catch (e) {
-                  debugPrint('Error submitting payment: $e');
+                } catch (e, stackTrace) {
+                  debugPrint('❌ Error submitting payment in UI:');
+                  debugPrint('Error type: ${e.runtimeType}');
+                  debugPrint('Error message: $e');
+                  debugPrint('Stack trace: $stackTrace');
+                  debugPrint('Delivery ID: ${widget.orderId}');
+                  debugPrint('User ID: ${Supabase.instance.client.auth.currentUser?.id ?? 'null'}');
+                  debugPrint('Payment image: ${paymentImage != null ? 'provided' : 'null'}');
+                  debugPrint('Reference number: ${referenceController.text.trim()}');
+                  debugPrint('Amount: ${amountController.text.trim()}');
+                  debugPrint('Sender name: ${nameController.text.trim()}');
+                  
                   if (context.mounted) {
                     setDialogState(() => isLoading = false);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('Failed to submit payment: ${e.toString()}'),
                         backgroundColor: AppColors.error,
+                        duration: const Duration(seconds: 5),
                       ),
                     );
                   }
@@ -1450,6 +1494,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                   : const Text('Submit Payment'),
             ),
           ],
+        ),
         ),
       ),
     );

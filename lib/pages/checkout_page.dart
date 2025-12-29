@@ -36,6 +36,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
   LatLng? _selectedLatLng;
   String? _selectedAddress;
   GoogleMapController? _mapController;
+  GoogleMapController? _previewMapController; // For the preview map
   bool _isPlacingOrder = false;
   bool _isLoading = true;
   Map<String, dynamic>? _customerData;
@@ -105,6 +106,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
     _searchController.dispose();
     _notesController.dispose();
     _mapController?.dispose();
+    _previewMapController?.dispose();
     super.dispose();
   }
 
@@ -361,6 +363,95 @@ class _CheckoutPageState extends State<CheckoutPage> {
       }
     } catch (e) {
       debugPrint('Error reverse geocoding: $e');
+    }
+  }
+
+  Future<void> _openMapModal() async {
+    final initialPosition = _selectedLatLng ?? 
+        (_customerData != null && _customerData!['latitude'] != null && _customerData!['longitude'] != null
+            ? LatLng(
+                _customerData!['latitude'] as double,
+                _customerData!['longitude'] as double,
+              )
+            : const LatLng(14.5995, 120.9842)); // Default to Manila
+    
+    final result = await showDialog<LatLng>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(10),
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.85,
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    topRight: Radius.circular(12),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.location_on,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Select Delivery Location',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: _MapSelector(
+                  initialPosition: initialPosition,
+                  isPickup: false,
+                  onLocationSelected: (latLng) {
+                    Navigator.of(context).pop(latLng);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    
+    if (result != null) {
+      await _updateLocationFromMap(result);
+    }
+  }
+
+  Future<void> _updateLocationFromMap(LatLng latLng) async {
+    setState(() {
+      _selectedLatLng = latLng;
+    });
+
+    // Reverse geocode to get address
+    await _reverseGeocode(latLng);
+    
+    // Update delivery fee
+    _calculateDeliveryFee();
+    
+    // Update preview map camera
+    if (_previewMapController != null) {
+      _previewMapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(latLng, 16),
+      );
     }
   }
 
@@ -644,27 +735,51 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         ),
                         const SizedBox(height: 12),
                         
-                        
+                        // Single address field that serves both search and display
                         TextFormField(
-                          controller: _searchController,
+                          controller: _addressController,
                           decoration: InputDecoration(
-                            labelText: 'Search for address',
-                            hintText: 'Enter address or location',
-                            prefixIcon: const Icon(Icons.search),
-                            suffixIcon: IconButton(
-                              icon: const Icon(Icons.my_location),
-                              onPressed: _getCurrentLocation,
+                            labelText: 'Delivery Address',
+                            hintText: 'Search address or tap map icon to select location',
+                            prefixIcon: const Icon(Icons.location_on),
+                            suffixIcon: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.my_location),
+                                  onPressed: _getCurrentLocation,
+                                  tooltip: 'Use current location',
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.map),
+                                  onPressed: () => _openMapModal(),
+                                  tooltip: 'Select on map',
+                                ),
+                              ],
                             ),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
+                          maxLines: 2,
                           onChanged: (value) {
+                            // Update search controller for autocomplete
+                            _searchController.text = value;
                             _fetchAutocomplete(value);
+                            // Update selected address
+                            setState(() {
+                              _selectedAddress = value;
+                            });
+                          },
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty || _selectedLatLng == null) {
+                              return 'Please select a delivery location';
+                            }
+                            return null;
                           },
                         ),
                         
-                        
+                        // Autocomplete suggestions
                         if (_predictions.isNotEmpty)
                           Container(
                             margin: const EdgeInsets.only(top: 8),
@@ -700,30 +815,106 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         
                         const SizedBox(height: 16),
                         
-                        
-                        TextFormField(
-                          controller: _addressController,
-                          decoration: InputDecoration(
-                            labelText: 'Delivery Address',
-                            hintText: 'Select or enter your delivery address',
-                            prefixIcon: const Icon(Icons.home),
-                            border: OutlineInputBorder(
+                        // Map Preview
+                        GestureDetector(
+                          onTap: () => _openMapModal(),
+                          child: Container(
+                            height: 200,
+                            decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.border, width: 2),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Stack(
+                                children: [
+                                  if (_selectedLatLng == null)
+                                    Container(
+                                      color: Colors.grey[200],
+                                      child: Center(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.map,
+                                              size: 48,
+                                              color: AppColors.textSecondary,
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              'Tap to select location',
+                                              style: TextStyle(
+                                                color: AppColors.textSecondary,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    GoogleMap(
+                                      key: ValueKey(_selectedLatLng?.toString() ?? 'map'),
+                                      initialCameraPosition: CameraPosition(
+                                        target: _selectedLatLng!,
+                                        zoom: 15,
+                                      ),
+                                      markers: {
+                                        Marker(
+                                          markerId: const MarkerId('delivery'),
+                                          position: _selectedLatLng!,
+                                          icon: BitmapDescriptor.defaultMarkerWithHue(
+                                            BitmapDescriptor.hueRed,
+                                          ),
+                                        ),
+                                      },
+                                      zoomGesturesEnabled: false,
+                                      scrollGesturesEnabled: false,
+                                      rotateGesturesEnabled: false,
+                                      tiltGesturesEnabled: false,
+                                      myLocationButtonEnabled: false,
+                                      zoomControlsEnabled: false,
+                                      onMapCreated: (controller) {
+                                        _previewMapController = controller;
+                                        if (_selectedLatLng != null) {
+                                          controller.animateCamera(
+                                            CameraUpdate.newLatLngZoom(_selectedLatLng!, 16),
+                                          );
+                                        }
+                                      },
+                                    ),
+                                  // Tap to change overlay
+                                  if (_selectedLatLng != null)
+                                    Container(
+                                      color: Colors.transparent,
+                                      child: Center(
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black54,
+                                            borderRadius: BorderRadius.circular(20),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.map, color: Colors.white, size: 20),
+                                              SizedBox(width: 8),
+                                              Text(
+                                                'Tap to change location',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
-                          maxLines: 3,
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Please enter delivery address';
-                            }
-                            return null;
-                          },
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedAddress = value;
-                            });
-                            
-                          },
                         ),
                         
                         const SizedBox(height: 24),
@@ -763,57 +954,6 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         const SizedBox(height: 24),
                         
                         
-                        if (_selectedLatLng != null)
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Location Preview',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textPrimary,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Container(
-                                height: 200,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: AppColors.border),
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: GoogleMap(
-                                    initialCameraPosition: CameraPosition(
-                                      target: _selectedLatLng!,
-                                      zoom: 17,
-                                    ),
-                                    markers: {
-                                      Marker(
-                                        markerId: const MarkerId('delivery'),
-                                        position: _selectedLatLng!,
-                                        infoWindow: InfoWindow(
-                                          title: 'Delivery Location',
-                                          snippet: _selectedAddress,
-                                        ),
-                                      ),
-                                    },
-                                    myLocationEnabled: false,
-                                    myLocationButtonEnabled: false,
-                                    zoomControlsEnabled: false,
-                                    onMapCreated: (controller) {
-                                      _mapController = controller;
-                                    },
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        
-                        const SizedBox(height: 24),
-                        
-                        
                         Text(
                           'Order Summary',
                           style: TextStyle(
@@ -839,25 +979,25 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                     children: [
                                       Padding(
                                         padding: EdgeInsets.only(bottom: hasAddons ? 8 : 12),
-                                        child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                '${item.name} x${item.quantity}',
-                                                style: const TextStyle(
-                                                  fontSize: 14,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: AppColors.textPrimary,
-                                                ),
-                                              ),
-                                            ),
-                                            Text(
-                                              '₱${(item.basePriceCents / 100).toStringAsFixed(2)}',
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              '${item.name} x${item.quantity}',
                                               style: const TextStyle(
                                                 fontSize: 14,
-                                                fontWeight: FontWeight.w600,
+                                                  fontWeight: FontWeight.w600,
                                                 color: AppColors.textPrimary,
+                                              ),
+                                            ),
+                                          ),
+                                          Text(
+                                              '₱${(item.basePriceCents / 100).toStringAsFixed(2)}',
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppColors.textPrimary,
                                               ),
                                             ),
                                           ],
@@ -885,11 +1025,11 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                                 style: TextStyle(
                                                   fontSize: 13,
                                                   color: AppColors.textSecondary,
-                                                ),
-                                              ),
-                                            ],
+                                            ),
                                           ),
-                                        )),
+                                        ],
+                                      ),
+                                    )),
                                       if (hasAddons)
                                         Padding(
                                           padding: const EdgeInsets.only(left: 16, bottom: 8),
@@ -1044,6 +1184,215 @@ class _CheckoutPageState extends State<CheckoutPage> {
           },
         ),
       ),
+    );
+  }
+}
+
+// Map Selector Widget (similar to Padala module)
+class _MapSelector extends StatefulWidget {
+  final LatLng initialPosition;
+  final bool isPickup;
+  final Function(LatLng) onLocationSelected;
+
+  const _MapSelector({
+    required this.initialPosition,
+    required this.isPickup,
+    required this.onLocationSelected,
+  });
+
+  @override
+  State<_MapSelector> createState() => _MapSelectorState();
+}
+
+class _MapSelectorState extends State<_MapSelector> {
+  late LatLng _selectedPosition;
+  GoogleMapController? _mapController;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedPosition = widget.initialPosition;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        GoogleMap(
+          initialCameraPosition: CameraPosition(
+            target: _selectedPosition,
+            zoom: 16,
+          ),
+          markers: {
+            Marker(
+              markerId: const MarkerId('selected'),
+              position: _selectedPosition,
+              icon: BitmapDescriptor.defaultMarkerWithHue(
+                widget.isPickup ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
+              ),
+              draggable: true,
+              onDragEnd: (newPosition) {
+                setState(() {
+                  _selectedPosition = newPosition;
+                });
+              },
+            ),
+          },
+          myLocationEnabled: true,
+          myLocationButtonEnabled: true,
+          zoomControlsEnabled: false,
+          zoomGesturesEnabled: true,
+          scrollGesturesEnabled: true,
+          rotateGesturesEnabled: true,
+          tiltGesturesEnabled: true,
+          onMapCreated: (controller) {
+            _mapController = controller;
+          },
+          onTap: (latLng) {
+            setState(() {
+              _selectedPosition = latLng;
+            });
+          },
+        ),
+        // Custom zoom controls
+        Positioned(
+          top: 100,
+          left: 16,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Material(
+                color: Colors.white,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(8),
+                  topRight: Radius.circular(8),
+                ),
+                elevation: 10,
+                shadowColor: Colors.black87,
+                child: InkWell(
+                  onTap: () {
+                    if (_mapController != null) {
+                      _mapController!.animateCamera(
+                        CameraUpdate.zoomIn(),
+                      );
+                    }
+                  },
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(8),
+                    topRight: Radius.circular(8),
+                  ),
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(8),
+                        topRight: Radius.circular(8),
+                      ),
+                      border: Border.all(color: Colors.grey[700]!, width: 2.5),
+                    ),
+                    child: const Icon(Icons.add, size: 32, color: Colors.black87),
+                  ),
+                ),
+              ),
+              Container(
+                width: 56,
+                height: 2,
+                color: Colors.grey[500],
+              ),
+              Material(
+                color: Colors.white,
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(8),
+                  bottomRight: Radius.circular(8),
+                ),
+                elevation: 10,
+                shadowColor: Colors.black87,
+                child: InkWell(
+                  onTap: () {
+                    if (_mapController != null) {
+                      _mapController!.animateCamera(
+                        CameraUpdate.zoomOut(),
+                      );
+                    }
+                  },
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(8),
+                    bottomRight: Radius.circular(8),
+                  ),
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(8),
+                        bottomRight: Radius.circular(8),
+                      ),
+                      border: Border.all(color: Colors.grey[700]!, width: 2.5),
+                    ),
+                    child: const Icon(Icons.remove, size: 32, color: Colors.black87),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          bottom: 16,
+          left: 16,
+          right: 16,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  '💡 Tap anywhere on the map or drag the marker to set location',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: () {
+                  widget.onLocationSelected(_selectedPosition);
+                },
+                icon: const Icon(Icons.check, color: Colors.white),
+                label: const Text(
+                  'Confirm Location',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                  minimumSize: const Size(double.infinity, 56),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

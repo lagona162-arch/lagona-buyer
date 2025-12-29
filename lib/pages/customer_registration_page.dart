@@ -13,20 +13,23 @@ import 'service_selection_page.dart';
 
 class CustomerRegistrationPage extends StatefulWidget {
 	static const String routeName = '/register';
-	const CustomerRegistrationPage({super.key});
+	final String? userId; // User ID from registration
+	final bool isEditMode; // True if editing existing address, false for new registration
+	
+	const CustomerRegistrationPage({
+		super.key, 
+		this.userId,
+		this.isEditMode = false,
+	});
 
 	@override
 	State<CustomerRegistrationPage> createState() => _CustomerRegistrationPageState();
 }
 
 class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
-	final TextEditingController firstNameController = TextEditingController();
-	final TextEditingController lastNameController = TextEditingController();
-	final TextEditingController middleInitialController = TextEditingController();
 	final TextEditingController phoneController = TextEditingController();
 	final TextEditingController searchController = TextEditingController();
 
-	List<Map<String, String>> predictions = [];
 	LatLng? selectedLatLng;
 	String? selectedAddress;
 	GoogleMapController? mapController;
@@ -34,10 +37,11 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 	StreamSubscription<Position>? _posSub;
 	bool _liveTracking = false;
 	final _formKey = GlobalKey<FormState>();
+	String? _userId; // Store user ID
 	
 	
 	Future<void> _updateMapCamera() async {
-		if (mapController != null && selectedLatLng != null) {
+		if (mapController != null && selectedLatLng != null && mounted) {
 			try {
 				await mapController!.animateCamera(
 					CameraUpdate.newLatLngZoom(selectedLatLng!, 17),
@@ -51,17 +55,39 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 	@override
 	void initState() {
 		super.initState();
+		// Get user ID from widget parameter or from auth
+		_userId = widget.userId;
 		_loadUserData();
+		_checkAuthState();
+	}
+	
+	Future<void> _checkAuthState() async {
+		// Check if user exists, if not, try to get from session
+		final user = Supabase.instance.client.auth.currentUser;
+		if (user == null) {
+			// Try to get the session
+			final session = Supabase.instance.client.auth.currentSession;
+			debugPrint('Current session: $session');
+			debugPrint('Current user: $user');
+			
+			// Try refreshing the session to get the user
+			try {
+				final refreshedSession = await Supabase.instance.client.auth.refreshSession();
+				debugPrint('Refreshed session user: ${refreshedSession.user?.id}');
+			} catch (e) {
+				debugPrint('Could not refresh session: $e');
+			}
+		} else {
+			debugPrint('User found in initState: ${user.id}, email confirmed: ${user.emailConfirmedAt != null}');
+		}
 	}
 	
 	@override
 	void dispose() {
 		_posSub?.cancel();
-		firstNameController.dispose();
-		lastNameController.dispose();
-		middleInitialController.dispose();
 		phoneController.dispose();
 		searchController.dispose();
+		mapController?.dispose();
 		super.dispose();
 	}
 	
@@ -95,104 +121,56 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 	}
 
 	Future<void> _loadUserData() async {
+		// Only load phone number if it exists, don't pre-fill name fields
+		// Names should be entered fresh or come from the registration page
 		final user = Supabase.instance.client.auth.currentUser;
 		if (user != null) {
-			
 			try {
 				final response = await Supabase.instance.client
 					.from('users')
-					.select('firstname, lastname, middle_initial, phone')
+					.select('phone')
 					.eq('id', user.id)
 					.single();
 				
-				if (response['firstname'] != null) {
-					firstNameController.text = response['firstname'] as String;
-				}
-				if (response['lastname'] != null) {
-					lastNameController.text = response['lastname'] as String;
-				}
-				if (response['middle_initial'] != null) {
-					middleInitialController.text = response['middle_initial'] as String;
-				}
+				// Only pre-fill phone if it exists
 				if (response['phone'] != null) {
 					phoneController.text = response['phone'] as String;
 				}
-			} catch (_) {
 				
-				final fullName = user.userMetadata?['full_name'] as String?;
-				if (fullName != null && fullName.isNotEmpty) {
-					
-					final parts = fullName.trim().split(' ');
-					if (parts.isNotEmpty) {
-						firstNameController.text = parts[0];
-						if (parts.length > 1) {
-							lastNameController.text = parts[parts.length - 1];
-							if (parts.length > 2 && parts[1].length <= 2) {
-								middleInitialController.text = parts[1].replaceAll('.', '').toUpperCase();
+				// If in edit mode, also load existing address
+				if (widget.isEditMode) {
+					try {
+						final customerData = await Supabase.instance.client
+							.from('customers')
+							.select('address, latitude, longitude')
+							.eq('id', user.id)
+							.maybeSingle();
+						
+						if (customerData != null) {
+							if (customerData['latitude'] != null && customerData['longitude'] != null) {
+								selectedLatLng = LatLng(
+									(customerData['latitude'] as num).toDouble(),
+									(customerData['longitude'] as num).toDouble(),
+								);
+								selectedAddress = customerData['address'] as String?;
+								searchController.text = selectedAddress ?? '';
+								
+								// Update map camera after a short delay to ensure map is ready
+								Future.delayed(const Duration(milliseconds: 500), () {
+									_updateMapCamera();
+								});
 							}
 						}
+					} catch (e) {
+						debugPrint('Error loading customer address: $e');
 					}
 				}
+			} catch (_) {
+				// No user data found, that's okay - user will enter everything fresh
 			}
 		}
 	}
 
-	Future<void> fetchAutocomplete(String input) async {
-		if (input.trim().isEmpty) {
-			setState(() => predictions = []);
-			return;
-		}
-		final uri = Uri.https(
-			'maps.googleapis.com',
-			'/maps/api/place/autocomplete/json',
-			{
-				'input': input,
-				'key': MapsConfig.apiKey,
-				'components': 'country:ph',
-			},
-		);
-		final res = await http.get(uri);
-		if (res.statusCode == 200) {
-			final data = json.decode(res.body) as Map<String, dynamic>;
-			final preds = (data['predictions'] as List)
-				.map((p) => {
-					'description': p['description'] as String,
-					'place_id': p['place_id'] as String,
-				})
-				.toList();
-			setState(() => predictions = preds);
-		}
-	}
-
-	Future<void> selectPlace(String placeId, String description) async {
-		final uri = Uri.https(
-			'maps.googleapis.com',
-			'/maps/api/place/details/json',
-			{
-				'place_id': placeId,
-				'key': MapsConfig.apiKey,
-				'fields': 'geometry/location,formatted_address',
-			},
-		);
-		final res = await http.get(uri);
-		if (res.statusCode == 200) {
-			final data = json.decode(res.body) as Map<String, dynamic>;
-			final loc = data['result']['geometry']['location'] as Map<String, dynamic>;
-			final lat = (loc['lat'] as num).toDouble();
-			final lng = (loc['lng'] as num).toDouble();
-			setState(() {
-				selectedLatLng = LatLng(lat, lng);
-				selectedAddress = data['result']['formatted_address'] as String? ?? description;
-				searchController.text = selectedAddress!;
-				predictions = [];
-			});
-			if (mapController != null) {
-				await mapController!.animateCamera(
-					CameraUpdate.newLatLngZoom(LatLng(lat, lng), 16),
-				);
-			}
-		}
-	}
 
 	Future<void> _reverseGeocode(LatLng latLng) async {
 		final uri = Uri.https(
@@ -211,17 +189,12 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 			if (results.isNotEmpty) {
 				final address = results.first['formatted_address'] as String?;
 				
-				final addressWithCoords = address != null
-					? '$address (${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)})'
-					: '${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)}';
-				
 				if (!mounted) return;
 				setState(() {
-					selectedAddress = address ?? '${latLng.latitude}, ${latLng.longitude}';
-					searchController.text = addressWithCoords;
+					selectedAddress = address ?? '${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)}';
+					searchController.text = selectedAddress!;
 				});
 			} else {
-				
 				if (!mounted) return;
 				final coords = '${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)}';
 				setState(() {
@@ -230,7 +203,6 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 				});
 			}
 		} else {
-			
 			if (!mounted) return;
 			final coords = '${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)}';
 			setState(() {
@@ -243,6 +215,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 	Future<void> _toggleLiveLocation() async {
 		if (_liveTracking) {
 			await _posSub?.cancel();
+			_posSub = null;
 			setState(() => _liveTracking = false);
 			return;
 		}
@@ -350,64 +323,163 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 				accuracy: LocationAccuracy.high,
 				distanceFilter: 10, 
 			),
-		).listen((pos) async {
-			if (!mounted) return;
+		).listen((pos) {
+			// CRITICAL: Check live tracking flag FIRST - must be synchronous check
+			// Don't use async/await here to avoid delays
+			if (!mounted || !_liveTracking || _posSub == null) {
+				return; // Stop immediately if live tracking is disabled
+			}
+			
 			final latLng = LatLng(pos.latitude, pos.longitude);
+			
+			// Double-check flag before updating (race condition protection)
+			if (!_liveTracking) return;
+			
 			setState(() {
 				selectedLatLng = latLng;
 			});
+			
+			// Update camera asynchronously (non-blocking)
 			if (mapController != null) {
-				await mapController!.animateCamera(
+				mapController!.animateCamera(
 					CameraUpdate.newLatLngZoom(latLng, 17),
-				);
+				).catchError((e) {
+					debugPrint('Error animating camera in live tracking: $e');
+				});
 			}
 			
-			await _reverseGeocode(latLng);
+			// Reverse geocode asynchronously (non-blocking)
+			_reverseGeocode(latLng);
 		});
 	}
 
 	Future<void> submit() async {
+		debugPrint('=== Submit button clicked ===');
+		debugPrint('selectedLatLng: $selectedLatLng');
+		debugPrint('selectedAddress: $selectedAddress');
 		
 		if (!_formKey.currentState!.validate()) {
+			debugPrint('Form validation failed');
 			return;
 		}
 		
-		if (selectedLatLng == null || selectedAddress == null) {
+		if (selectedLatLng == null) {
 			ScaffoldMessenger.of(context).showSnackBar(
-				const SnackBar(content: Text('Please select an address on the map or use your current location')),
+				const SnackBar(content: Text('Please select a location on the map or use your current location')),
 			);
 			return;
 		}
 		
+		// Use coordinates as fallback if address is still null
+		final address = selectedAddress ?? '${selectedLatLng!.latitude.toStringAsFixed(6)}, ${selectedLatLng!.longitude.toStringAsFixed(6)}';
 		
 		final phone = phoneController.text.trim().replaceAll(RegExp(r'[\s\-\(\)]'), '');
-		final user = Supabase.instance.client.auth.currentUser;
-		if (user != null) {
-			try {
-				await _supabase.updateCustomerAddress(
-					customerId: user.id,
-					address: selectedAddress!,
-					latitude: selectedLatLng!.latitude,
-					longitude: selectedLatLng!.longitude,
-					phone: phone, 
-					firstName: firstNameController.text.trim(),
-					lastName: lastNameController.text.trim(),
-					middleInitial: middleInitialController.text.trim().isNotEmpty
-						? middleInitialController.text.trim().toUpperCase()
-						: null,
+		
+		// Get user ID - prefer widget parameter, then try auth
+		String? userId = _userId;
+		
+		// If in edit mode, always use current authenticated user
+		if (widget.isEditMode) {
+			final user = Supabase.instance.client.auth.currentUser;
+			if (user == null) {
+				debugPrint('No authenticated user found in edit mode');
+				ScaffoldMessenger.of(context).showSnackBar(
+					const SnackBar(
+						content: Text('Please log in to edit your address'),
+						backgroundColor: Colors.red,
+						duration: Duration(seconds: 3),
+					),
 				);
-				if (mounted) {
-					Navigator.of(context).pushReplacementNamed(ServiceSelectionPage.routeName);
+				return;
+			}
+			userId = user.id;
+		} else if (userId == null) {
+			// Try to get from auth (for new registration flow)
+			var user = Supabase.instance.client.auth.currentUser;
+			if (user == null) {
+				final session = Supabase.instance.client.auth.currentSession;
+				if (session?.user != null) {
+					user = session!.user;
+					debugPrint('Got user from session: ${user.id}');
 				}
-			} catch (e) {
-				if (mounted) {
+			}
+			
+			if (user == null) {
+				// Try refreshing the session
+				try {
+					final refreshedSession = await Supabase.instance.client.auth.refreshSession();
+					user = refreshedSession.user;
+					debugPrint('Got user from refreshed session: ${user?.id}');
+				} catch (e) {
+					debugPrint('Error refreshing session: $e');
+				}
+			}
+			
+			userId = user?.id;
+		}
+		
+		if (userId == null) {
+			debugPrint('No user ID found - user needs to verify email or log in');
+			ScaffoldMessenger.of(context).showSnackBar(
+				const SnackBar(
+					content: Text('Please verify your email first, or log in if you already have an account'),
+					duration: Duration(seconds: 5),
+				),
+			);
+			return;
+		}
+		
+		try {
+			debugPrint('Updating customer address...');
+			debugPrint('Using user ID: $userId');
+			await _supabase.updateCustomerAddress(
+				customerId: userId,
+				address: address,
+				latitude: selectedLatLng!.latitude,
+				longitude: selectedLatLng!.longitude,
+				phone: phone,
+			);
+			debugPrint('✅ Customer address updated successfully');
+			
+			if (mounted) {
+				if (widget.isEditMode) {
+					// For edit mode, just show success and go back
 					ScaffoldMessenger.of(context).showSnackBar(
-						SnackBar(
-							content: Text('Registration failed: ${e.toString()}'),
-							backgroundColor: Colors.red,
+						const SnackBar(
+							content: Text('Address updated successfully!'),
+							backgroundColor: Colors.green,
+							duration: Duration(seconds: 2),
 						),
 					);
+					Navigator.of(context).pop();
+				} else {
+					// For new registration, show success message and redirect to login
+					ScaffoldMessenger.of(context).showSnackBar(
+						const SnackBar(
+							content: Text('Registration complete! Please verify your email and log in.'),
+							backgroundColor: Colors.green,
+							duration: Duration(seconds: 3),
+						),
+					);
+					
+					// Navigate to login page since user needs to verify email first
+					Navigator.of(context).pushNamedAndRemoveUntil(
+						'/login',
+						(route) => false, // Remove all previous routes
+					);
 				}
+			}
+		} catch (e, stackTrace) {
+			debugPrint('❌ Registration failed: $e');
+			debugPrint('Stack trace: $stackTrace');
+			if (mounted) {
+				ScaffoldMessenger.of(context).showSnackBar(
+					SnackBar(
+						content: Text('Registration failed: ${e.toString()}'),
+						backgroundColor: Colors.red,
+						duration: const Duration(seconds: 5),
+					),
+				);
 			}
 		}
 	}
@@ -415,7 +487,9 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 	@override
 	Widget build(BuildContext context) {
 		return Scaffold(
-			appBar: AppBar(title: const Text('Customer Registration')),
+			appBar: AppBar(
+				title: Text(widget.isEditMode ? 'Edit Address' : 'Customer Registration'),
+			),
 			body: Column(
 				children: [
 					Padding(
@@ -424,40 +498,6 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 							key: _formKey,
 							child: Column(
 								children: [
-								TextFormField(
-									controller: firstNameController,
-									enabled: false, 
-									decoration: InputDecoration(
-										labelText: 'First Name',
-										border: const OutlineInputBorder(),
-										filled: true,
-										fillColor: Colors.grey.shade100,
-									),
-								),
-								const SizedBox(height: 12),
-								TextField(
-									controller: middleInitialController,
-									textInputAction: TextInputAction.next,
-									maxLength: 1,
-									textCapitalization: TextCapitalization.characters,
-									decoration: const InputDecoration(
-										labelText: 'Middle Initial (Optional)',
-										border: OutlineInputBorder(),
-										counterText: '',
-									),
-								),
-								const SizedBox(height: 12),
-								TextFormField(
-									controller: lastNameController,
-									enabled: false, 
-									decoration: InputDecoration(
-										labelText: 'Last Name',
-										border: const OutlineInputBorder(),
-										filled: true,
-										fillColor: Colors.grey.shade100,
-									),
-								),
-								const SizedBox(height: 12),
 								TextFormField(
 									controller: phoneController,
 									keyboardType: TextInputType.phone,
@@ -473,86 +513,179 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 									validator: _validatePhoneNumber,
 								),
 								const SizedBox(height: 12),
-								TextField(
+								// Address display field (read-only, shows selected address)
+								TextFormField(
 									controller: searchController,
-									onChanged: fetchAutocomplete,
-									decoration: const InputDecoration(
-										labelText: 'Search Address',
-										hintText: 'Street, barangay, city',
-										border: OutlineInputBorder(),
+									readOnly: true,
+									decoration: InputDecoration(
+										labelText: 'Selected Address',
+										hintText: 'Tap on the map or use current location',
+										border: const OutlineInputBorder(),
+										prefixIcon: const Icon(Icons.location_on),
+										filled: true,
+										fillColor: selectedAddress != null ? Colors.green.shade50 : Colors.grey.shade100,
+										helperText: selectedAddress != null 
+											? 'Address selected ✓' 
+											: 'Tap anywhere on the map below to select your location',
 									),
+									validator: (value) {
+										if (selectedLatLng == null || selectedAddress == null) {
+											return 'Please select a location on the map';
+										}
+										return null;
+									},
 								),
-								if (predictions.isNotEmpty)
-									Container(
-										margin: const EdgeInsets.only(top: 8),
-										decoration: BoxDecoration(
-											border: Border.all(color: Colors.grey.shade300),
-											borderRadius: BorderRadius.circular(8),
-											color: Colors.white,
-										),
-										constraints: const BoxConstraints(maxHeight: 200),
-										child: ListView.builder(
-											itemCount: predictions.length,
-											itemBuilder: (context, index) {
-												final p = predictions[index];
-												return ListTile(
-													title: Text(p['description']!),
-													onTap: () => selectPlace(p['place_id']!, p['description']!),
-												);
-											},
-										),
-									),
 								],
 							),
 						),
 					),
 					Expanded(
-						child: GoogleMap(
-							key: ValueKey(
-								'${selectedLatLng?.latitude ?? 0}_${selectedLatLng?.longitude ?? 0}_$_liveTracking',
-							),
-							initialCameraPosition: CameraPosition(
-								target: selectedLatLng ?? const LatLng(14.5995, 120.9842),
-								zoom: selectedLatLng != null ? 17 : 12,
-							),
-							onMapCreated: (GoogleMapController controller) async {
-								mapController = controller;
-								
-								if (selectedLatLng != null) {
-									
-									await Future.delayed(const Duration(milliseconds: 300));
-									await _updateMapCamera();
-								}
-							},
-							markers: {
-								if (selectedLatLng != null)
-									Marker(
-										markerId: const MarkerId('selected'),
-										position: selectedLatLng!,
-										draggable: true,
-										onDragEnd: (pos) {
-											setState(() {
-												selectedLatLng = pos;
-												_liveTracking = false;
-												_posSub?.cancel();
-											});
-											_reverseGeocode(pos);
-										},
+						child: Stack(
+							children: [
+								GoogleMap(
+									initialCameraPosition: CameraPosition(
+										target: selectedLatLng ?? const LatLng(14.5995, 120.9842),
+										zoom: selectedLatLng != null ? 17 : 12,
 									),
-							},
-							onTap: (pos) {
-								setState(() {
-									selectedLatLng = pos;
-									_liveTracking = false;
-									_posSub?.cancel();
-								});
-								_reverseGeocode(pos);
-							},
-							myLocationButtonEnabled: true,
-							myLocationEnabled: _liveTracking,
-							mapType: MapType.normal,
-							zoomControlsEnabled: true,
-							compassEnabled: true,
+									onMapCreated: (GoogleMapController controller) {
+										mapController = controller;
+										if (selectedLatLng != null) {
+											// Update camera after map is created
+											WidgetsBinding.instance.addPostFrameCallback((_) async {
+												if (mounted && mapController != null && selectedLatLng != null) {
+													await mapController!.animateCamera(
+														CameraUpdate.newLatLngZoom(selectedLatLng!, 17),
+													);
+												}
+											});
+										}
+									},
+									markers: selectedLatLng != null
+										? {
+											Marker(
+												markerId: const MarkerId('selected'),
+												position: selectedLatLng!,
+												draggable: true,
+												icon: BitmapDescriptor.defaultMarkerWithHue(
+													BitmapDescriptor.hueRed,
+												),
+												onDragEnd: (pos) async {
+													if (!mounted) return;
+													
+													// IMMEDIATELY stop live tracking - cancel subscription and set flag FIRST
+													if (_liveTracking) {
+														_liveTracking = false; // Set flag immediately to prevent stream updates
+														await _posSub?.cancel();
+														_posSub = null;
+													}
+													
+													// Set coordinates as fallback address immediately
+													final coords = '${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}';
+													
+													setState(() {
+														selectedLatLng = pos;
+														selectedAddress = coords; // Set fallback immediately
+														searchController.text = coords;
+													});
+													
+													// Update camera immediately
+													if (mapController != null) {
+														try {
+															await mapController!.animateCamera(
+																CameraUpdate.newLatLngZoom(pos, 17),
+															);
+														} catch (e) {
+															debugPrint('Error animating camera: $e');
+														}
+													}
+													
+													// Then reverse geocode (non-blocking, will update address when done)
+													_reverseGeocode(pos);
+												},
+											),
+										}
+										: {},
+									onTap: (pos) async {
+										if (!mounted) return;
+										
+										// IMMEDIATELY stop live tracking - cancel subscription and set flag FIRST
+										if (_liveTracking) {
+											_liveTracking = false; // Set flag immediately to prevent stream updates
+											await _posSub?.cancel();
+											_posSub = null;
+										}
+										
+										// Set coordinates as fallback address immediately
+										final coords = '${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}';
+										
+										// Update state with new location - always works, no delay
+										setState(() {
+											selectedLatLng = pos;
+											selectedAddress = coords; // Set fallback immediately
+											searchController.text = coords;
+										});
+										
+										// Update camera immediately to show the marker
+										if (mapController != null) {
+											try {
+												await mapController!.animateCamera(
+													CameraUpdate.newLatLngZoom(pos, 17),
+												);
+											} catch (e) {
+												debugPrint('Error animating camera: $e');
+											}
+										}
+										
+										// Then reverse geocode (non-blocking, will update address when done)
+										_reverseGeocode(pos);
+									},
+									myLocationButtonEnabled: true,
+									myLocationEnabled: true,
+									mapType: MapType.normal,
+									zoomControlsEnabled: true,
+									compassEnabled: true,
+									zoomGesturesEnabled: true,
+									scrollGesturesEnabled: true,
+									rotateGesturesEnabled: true,
+									tiltGesturesEnabled: true,
+								),
+								// Instruction overlay
+								if (selectedLatLng == null)
+									Positioned(
+										top: 16,
+										left: 16,
+										right: 16,
+										child: Container(
+											padding: const EdgeInsets.all(12),
+											decoration: BoxDecoration(
+												color: Colors.white,
+												borderRadius: BorderRadius.circular(8),
+												boxShadow: [
+													BoxShadow(
+														color: Colors.black.withOpacity(0.2),
+														blurRadius: 8,
+														offset: const Offset(0, 2),
+													),
+												],
+											),
+											child: Row(
+												children: [
+													Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+													const SizedBox(width: 8),
+													Expanded(
+														child: Text(
+															'💡 Tap anywhere on the map or drag the marker to select your location',
+															style: TextStyle(
+																fontSize: 12,
+																color: Colors.grey[800],
+															),
+														),
+													),
+												],
+											),
+										),
+									),
+							],
 						),
 					),
 					SafeArea(
@@ -563,15 +696,27 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 								child: Column(
 									crossAxisAlignment: CrossAxisAlignment.stretch,
 									children: [
-										OutlinedButton.icon(
+										ElevatedButton.icon(
 											onPressed: _toggleLiveLocation,
-											icon: Icon(_liveTracking ? Icons.gps_off : Icons.gps_fixed),
-											label: Text(_liveTracking ? 'Stop using my live location' : 'Use my current location'),
+											icon: Icon(_liveTracking ? Icons.gps_off : Icons.my_location),
+											label: Text(_liveTracking ? 'Stop Live Tracking' : 'Use My Current Location'),
+											style: ElevatedButton.styleFrom(
+												backgroundColor: _liveTracking ? Colors.orange : Colors.blue,
+												foregroundColor: Colors.white,
+											),
 										),
 										const SizedBox(height: 8),
 										ElevatedButton(
 											onPressed: submit,
-											child: const Text('Confirm & Register'),
+											style: ElevatedButton.styleFrom(
+												backgroundColor: Colors.green,
+												foregroundColor: Colors.white,
+												padding: const EdgeInsets.symmetric(vertical: 16),
+											),
+											child: const Text(
+												'Confirm & Register',
+												style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+											),
 										),
 									],
 								),

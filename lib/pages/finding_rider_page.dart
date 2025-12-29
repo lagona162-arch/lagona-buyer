@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -28,8 +29,10 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 	final SupabaseService _supabaseService = SupabaseService();
 	Timer? _pollTimer;
 	Timer? _timeoutTimer;
+	Timer? _uiUpdateTimer; // Timer to update UI every second for countdown
 	DateTime _startedAt = DateTime.now();
 	bool _isSearching = true;
+	bool _isWaitingForAcceptance = false;
 	String _statusText = 'Finding a rider nearby...';
 	LatLng? _userLatLng;
 	AnimationController? _pulseController;
@@ -75,48 +78,60 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 	void _startPolling() {
 		_pollTimer?.cancel();
 		_pollTimer = Timer.periodic(pollInterval, (_) => _poll());
+		_startUIUpdateTimer();
 	}
-
-	void _startTimeout() {
-		_timeoutTimer?.cancel();
-		_timeoutTimer = Timer(timeout, _exhausted);
-	}
-
-	Future<void> _poll() async {
-		if (!_isSearching || _userLatLng == null) return;
-		setState(() => _statusText = 'Searching riders within ${searchRadiusKm.toStringAsFixed(0)} km...');
-		final match = await _service.findNearbyRider(_userLatLng!, radiusKm: searchRadiusKm);
-		if (!mounted) return;
-		if (match != null) {
-			_stopAll();
-			setState(() {
-				_isSearching = false;
-				_statusText = 'Rider found! Assigning to delivery...';
-			});
-			
-			
-			try {
-				// Check if this is a Padala delivery
-				final delivery = await _supabaseService.getDeliveryById(widget.orderId);
-				final isPadala = delivery?['type'] == 'parcel';
-				
-				if (isPadala) {
-					await _supabaseService.assignRiderToPadala(
-						padalaId: widget.orderId,
-						riderId: match.riderId,
-					);
-				} else {
-				await _supabaseService.assignRiderToDelivery(
-					deliveryId: widget.orderId,
-					riderId: match.riderId,
-				);
-				}
-				
-				if (!mounted) return;
+	
+	void _startUIUpdateTimer() {
+		_uiUpdateTimer?.cancel();
+		// Update UI every second to show countdown
+		_uiUpdateTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+			if (mounted && (_isSearching || _isWaitingForAcceptance)) {
 				setState(() {
-					_statusText = 'Rider assigned! Starting tracking...';
+					// Trigger rebuild to update countdown display
 				});
+			}
+		});
+	}
+
+	void _startPollingForAcceptance(String riderId, bool isPadala) {
+		_pollTimer?.cancel();
+		_pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollForAcceptance(riderId, isPadala));
+		// Cancel existing timeout and start a new 2-minute timeout for acceptance
+		_timeoutTimer?.cancel();
+		_startedAt = DateTime.now(); // Reset timer start time for acceptance wait
+		_startUIUpdateTimer(); // Ensure UI updates continue
+		_timeoutTimer = Timer(const Duration(minutes: 2), () {
+			if (mounted && _isWaitingForAcceptance) {
+				setState(() {
+					_isWaitingForAcceptance = false;
+					_isSearching = true;
+					_statusText = 'Rider did not respond. Searching for another rider...';
+					_startedAt = DateTime.now();
+				});
+				_pulseController?.repeat(reverse: true);
+				_startPolling();
+				_startTimeout();
+			}
+		});
+	}
+
+	Future<void> _pollForAcceptance(String riderId, bool isPadala) async {
+		if (!mounted) return;
+		
+		try {
+			final accepted = await _supabaseService.checkDeliveryOfferAccepted(
+				deliveryId: widget.orderId,
+				riderId: riderId,
+			);
+			
+			if (accepted) {
+				_stopAll();
+				if (!mounted) return;
 				
+				setState(() {
+					_isWaitingForAcceptance = false;
+					_statusText = 'Rider accepted! Starting tracking...';
+				});
 				
 				await Future<void>.delayed(const Duration(milliseconds: 400));
 				if (!mounted) return;
@@ -128,16 +143,84 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 						arguments: widget.orderId,
 					);
 				} else {
-				Navigator.of(context).pushReplacementNamed(
-					OrderTrackingPage.routeName,
-					arguments: widget.orderId,
-				);
+					Navigator.of(context).pushReplacementNamed(
+						OrderTrackingPage.routeName,
+						arguments: widget.orderId,
+					);
+				}
+			}
+		} catch (e) {
+			debugPrint('Error checking acceptance: $e');
+		}
+	}
+
+	void _startTimeout() {
+		_timeoutTimer?.cancel();
+		_timeoutTimer = Timer(timeout, _exhausted);
+		_startUIUpdateTimer(); // Ensure UI updates continue
+	}
+
+	Future<void> _poll() async {
+		if (!_isSearching || _userLatLng == null) return;
+		setState(() => _statusText = 'Searching riders within ${searchRadiusKm.toStringAsFixed(0)} km...');
+		final match = await _service.findNearbyRider(_userLatLng!, radiusKm: searchRadiusKm);
+		if (!mounted) return;
+		if (match != null) {
+			// Stop searching but keep timer running if waiting for acceptance
+			_pollTimer?.cancel();
+			_pulseController?.stop();
+			
+			setState(() {
+				_isSearching = false;
+				_statusText = 'Rider found! Sending delivery request...';
+			});
+			
+			
+			try {
+				// Check if this is a Padala delivery
+				final delivery = await _supabaseService.getDeliveryById(widget.orderId);
+				final isPadala = delivery?['type'] == 'parcel';
+				
+				if (isPadala) {
+					// Create delivery offer instead of directly assigning
+					await _supabaseService.createPadalaDeliveryOffer(
+						padalaId: widget.orderId,
+						riderId: match.riderId,
+					);
+					
+					if (!mounted) return;
+					setState(() {
+						_isWaitingForAcceptance = true;
+						_statusText = 'Waiting for rider to accept...';
+					});
+					
+					// Start polling for rider acceptance (keeps timeout timer running)
+					_startPollingForAcceptance(match.riderId, isPadala);
+				} else {
+					// For food deliveries, keep the old behavior (direct assignment)
+					await _supabaseService.assignRiderToDelivery(
+						deliveryId: widget.orderId,
+						riderId: match.riderId,
+					);
+					
+					if (!mounted) return;
+					setState(() {
+						_statusText = 'Rider assigned! Starting tracking...';
+					});
+					
+					await Future<void>.delayed(const Duration(milliseconds: 400));
+					if (!mounted) return;
+					
+					Navigator.of(context).pushReplacementNamed(
+						OrderTrackingPage.routeName,
+						arguments: widget.orderId,
+					);
 				}
 			} catch (e) {
 				if (!mounted) return;
 				setState(() {
 					_isSearching = false;
-					_statusText = 'Error assigning rider. Please try again.';
+					_statusText = 'Error sending request. Please try again.';
 				});
 			}
 		} else {
@@ -200,6 +283,7 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 	void _stopAll() {
 		_pollTimer?.cancel();
 		_timeoutTimer?.cancel();
+		_uiUpdateTimer?.cancel();
 		_pulseController?.stop();
 	}
 
@@ -213,6 +297,7 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 	void _retry() {
 		setState(() {
 			_isSearching = true;
+			_isWaitingForAcceptance = false;
 			_statusText = 'Finding a rider nearby...';
 			_startedAt = DateTime.now();
 		});
@@ -289,7 +374,13 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 	@override
 	Widget build(BuildContext context) {
 		final elapsed = DateTime.now().difference(_startedAt);
-		final remaining = timeout - elapsed;
+		// Use 2 minutes timeout when waiting for acceptance, 5 minutes when searching
+		final currentTimeout = _isWaitingForAcceptance 
+			? const Duration(minutes: 2) 
+			: timeout;
+		final remaining = currentTimeout - elapsed;
+		// Ensure remaining time doesn't go negative
+		final displayRemaining = remaining.isNegative ? Duration.zero : remaining;
 		return Scaffold(
 			appBar: AppBar(title: const Text('Finding Rider')),
 			body: Center(
@@ -308,11 +399,11 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 							const SizedBox(height: 16),
 							Text(_statusText, textAlign: TextAlign.center),
 							const SizedBox(height: 8),
-							if (_isSearching)
-								Text('Timeout in ${remaining.inMinutes.remainder(60).toString().padLeft(2, '0')}:'
-										'${(remaining.inSeconds.remainder(60)).toString().padLeft(2, '0')}', style: const TextStyle(color: Colors.grey)),
+							if (_isSearching || _isWaitingForAcceptance)
+								Text('Timeout in ${displayRemaining.inMinutes.remainder(60).toString().padLeft(2, '0')}:'
+										'${(displayRemaining.inSeconds.remainder(60)).toString().padLeft(2, '0')}', style: const TextStyle(color: Colors.grey)),
 							const SizedBox(height: 24),
-							if (_isSearching) ...[
+							if (_isSearching || _isWaitingForAcceptance) ...[
 								const LinearProgressIndicator(minHeight: 6),
 								const SizedBox(height: 24),
 								OutlinedButton.icon(
@@ -325,7 +416,7 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 									),
 								),
 							],
-							if (!_isSearching) ...[
+							if (!_isSearching && !_isWaitingForAcceptance) ...[
 								const SizedBox(height: 12),
 								Row(
 									mainAxisAlignment: MainAxisAlignment.center,

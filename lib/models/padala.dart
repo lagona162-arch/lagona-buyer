@@ -36,7 +36,9 @@ class PadalaDelivery {
   final double? deliveryFee;
   
   // Delivery tracking
-  final String? dropoffPhotoUrl;
+  final String? parcelPhotoUrl; // Photo taken by customer/sender of the parcel
+  final String? pickupPhotoUrl; // Photo taken by rider at pickup
+  final String? dropoffPhotoUrl; // Photo taken by rider at dropoff
   final DateTime? deliveredAt;
   
   const PadalaDelivery({
@@ -59,6 +61,8 @@ class PadalaDelivery {
     this.recipientNotes,
     this.packageDescription,
     this.deliveryFee,
+    this.parcelPhotoUrl,
+    this.pickupPhotoUrl,
     this.dropoffPhotoUrl,
     this.deliveredAt,
   });
@@ -88,6 +92,8 @@ class PadalaDelivery {
       deliveryFee: map['delivery_fee'] != null 
           ? (map['delivery_fee'] as num).toDouble() 
           : null,
+      parcelPhotoUrl: map['parcel_photo_url'] as String?,
+      pickupPhotoUrl: map['pickup_photo_url'] as String?,
       dropoffPhotoUrl: map['dropoff_photo_url'] as String?,
       deliveredAt: map['delivered_at'] != null 
           ? DateTime.parse(map['delivered_at'] as String)

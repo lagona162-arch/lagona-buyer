@@ -40,7 +40,7 @@ class MenuItem {
 			final addonsData = map['addons'] as List?;
 			if (addonsData != null && addonsData.isNotEmpty) {
 				try {
-					addonsList = addonsData
+				addonsList = addonsData
 						.map((e) {
 							try {
 								return MenuAddon.fromMap(Map<String, dynamic>.from(e));
@@ -49,13 +49,13 @@ class MenuItem {
 							}
 						})
 						.whereType<MenuAddon>()
-						.toList();
-					// Sort by sort_order if available
-					addonsList.sort((a, b) {
-						final aOrder = a.sortOrder ?? 0;
-						final bOrder = b.sortOrder ?? 0;
-						return aOrder.compareTo(bOrder);
-					});
+					.toList();
+				// Sort by sort_order if available
+				addonsList.sort((a, b) {
+					final aOrder = a.sortOrder ?? 0;
+					final bOrder = b.sortOrder ?? 0;
+					return aOrder.compareTo(bOrder);
+				});
 				} catch (e) {
 					addonsList = [];
 				}

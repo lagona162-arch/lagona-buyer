@@ -33,6 +33,8 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
   bool _isLoading = true;
   String? _errorMessage;
   String? _padalaId;
+  bool _hasShownDeliveryNotification = false;
+  PadalaStatus? _previousStatus;
   
   @override
   void initState() {
@@ -72,6 +74,15 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
       
       final padala = PadalaDelivery.fromMap(padalaData);
       
+      // Debug: Log the status for troubleshooting
+      debugPrint('📦 Padala Status: ${padalaData['status']} -> ${padala.status}');
+      debugPrint('📦 Is Dropoff: ${padala.status == PadalaStatus.dropoff}');
+      debugPrint('📦 Is Completed: ${padala.status == PadalaStatus.completed}');
+      
+      // Check if status changed to delivered
+      final wasDelivered = _padala?.status == PadalaStatus.dropoff || _padala?.status == PadalaStatus.completed;
+      final isNowDelivered = padala.status == PadalaStatus.dropoff || padala.status == PadalaStatus.completed;
+      
       setState(() {
         _padala = padala;
         _pickupLocation = LatLng(padala.pickupLatitude, padala.pickupLongitude);
@@ -90,7 +101,38 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
         _isLoading = false;
       });
       
-      _updateMap();
+      // Show notification when parcel is delivered
+      if (isNowDelivered && !wasDelivered && !_hasShownDeliveryNotification && mounted) {
+        _hasShownDeliveryNotification = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.white),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        '🎉 Your parcel has been delivered! Please confirm to finish the transaction.',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                    ),
+                  ],
+                ),
+                backgroundColor: AppColors.success,
+                duration: const Duration(seconds: 5),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        });
+      }
+      
+      _previousStatus = padala.status;
+      if (mounted) {
+        _updateMap();
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -152,19 +194,24 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
     });
     
     // Update camera to show all markers
-    if (_mapController != null && _pickupLocation != null && _dropoffLocation != null) {
-      final bounds = LatLngBounds(
-        southwest: LatLng(
-          math.min(_pickupLocation!.latitude, _dropoffLocation!.latitude) - 0.01,
-          math.min(_pickupLocation!.longitude, _dropoffLocation!.longitude) - 0.01,
-        ),
-        northeast: LatLng(
-          math.max(_pickupLocation!.latitude, _dropoffLocation!.latitude) + 0.01,
-          math.max(_pickupLocation!.longitude, _dropoffLocation!.longitude) + 0.01,
-        ),
-      );
-      
-      _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 100));
+    if (mounted && _mapController != null && _pickupLocation != null && _dropoffLocation != null) {
+      try {
+        final bounds = LatLngBounds(
+          southwest: LatLng(
+            math.min(_pickupLocation!.latitude, _dropoffLocation!.latitude) - 0.01,
+            math.min(_pickupLocation!.longitude, _dropoffLocation!.longitude) - 0.01,
+          ),
+          northeast: LatLng(
+            math.max(_pickupLocation!.latitude, _dropoffLocation!.latitude) + 0.01,
+            math.max(_pickupLocation!.longitude, _dropoffLocation!.longitude) + 0.01,
+          ),
+        );
+        
+        _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 100));
+      } catch (e) {
+        // Controller might be disposed, ignore the error
+        debugPrint('Error updating map camera: $e');
+      }
     }
   }
   
@@ -172,6 +219,7 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
   void dispose() {
     _updateTimer?.cancel();
     _mapController?.dispose();
+    _mapController = null; // Clear reference to prevent use after disposal
     super.dispose();
   }
   
@@ -357,6 +405,120 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
     );
   }
   
+  Widget _buildPickupPhotoCard() {
+    // Show parcel photo (taken by customer) if available
+    if (_padala == null || _padala!.parcelPhotoUrl == null) {
+      return const SizedBox.shrink();
+    }
+    
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.inventory_2, color: AppColors.primary, size: 20),
+                const SizedBox(width: 8),
+                const Text(
+                  'Parcel Photo',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                _padala!.parcelPhotoUrl!,
+                width: double.infinity,
+                height: 200,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    height: 200,
+                    color: AppColors.border,
+                    child: const Icon(Icons.error),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Photo taken by sender/customer',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildRiderPickupPhotoCard() {
+    // Show rider's pickup photo if available
+    if (_padala == null || _padala!.pickupPhotoUrl == null) {
+      return const SizedBox.shrink();
+    }
+    
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.local_shipping, color: AppColors.primary, size: 20),
+                const SizedBox(width: 8),
+                const Text(
+                  'Pickup Photo',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                _padala!.pickupPhotoUrl!,
+                width: double.infinity,
+                height: 200,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    height: 200,
+                    color: AppColors.border,
+                    child: const Icon(Icons.error),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Photo taken by rider at pickup',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
   Widget _buildDeliveryProofCard() {
     if (_padala == null || !_padala!.isDelivered || _padala!.dropoffPhotoUrl == null) {
       return const SizedBox.shrink();
@@ -369,12 +531,18 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Delivery Proof',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+            Row(
+              children: [
+                Icon(Icons.check_circle, color: AppColors.success, size: 20),
+                const SizedBox(width: 8),
+                const Text(
+                  'Delivery Proof',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             ClipRRect(
@@ -404,6 +572,143 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
                   ),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Future<void> _finishTransaction() async {
+    if (_padala == null || _padalaId == null) return;
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Finish Transaction'),
+        content: const Text(
+          'Are you sure you want to finish this transaction? This will mark the delivery as completed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+            ),
+            child: const Text('Finish', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      try {
+        final user = Supabase.instance.client.auth.currentUser;
+        if (user != null) {
+          await _supabaseService.completeDelivery(
+            deliveryId: _padalaId!,
+            customerId: user.id,
+          );
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Transaction completed successfully!'),
+                backgroundColor: AppColors.success,
+              ),
+            );
+            
+            // Reload to update status
+            _loadPadala();
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error finishing transaction: $e'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      }
+    }
+  }
+  
+  Widget _buildFinishTransactionButton() {
+    // Show if status is dropoff (delivered but not yet completed by customer)
+    // Also show if status is completed but user hasn't finished yet (edge case)
+    if (_padala == null) {
+      return const SizedBox.shrink();
+    }
+    
+    // Debug logging
+    debugPrint('🔍 Checking finish button visibility:');
+    debugPrint('   Status: ${_padala!.status}');
+    debugPrint('   Is dropoff: ${_padala!.status == PadalaStatus.dropoff}');
+    debugPrint('   Is completed: ${_padala!.status == PadalaStatus.completed}');
+    debugPrint('   Has dropoff photo: ${_padala!.dropoffPhotoUrl != null}');
+    
+    // Show button if:
+    // 1. Status is dropoff (delivered but not yet completed by customer), OR
+    // 2. Status is completed but has dropoff photo (edge case - rider marked as completed but customer hasn't confirmed)
+    final shouldShow = _padala!.status == PadalaStatus.dropoff || 
+                       (_padala!.status == PadalaStatus.completed && 
+                        _padala!.dropoffPhotoUrl != null && 
+                        _padala!.riderId != null);
+    
+    if (!shouldShow) {
+      debugPrint('   ❌ Button hidden - conditions not met');
+      return const SizedBox.shrink();
+    }
+    
+    debugPrint('   ✅ Button will be shown');
+    
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Transaction Complete',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your parcel has been delivered. Please confirm to finish the transaction.',
+              style: TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _finishTransaction,
+              icon: const Icon(Icons.check_circle, color: Colors.white),
+              label: const Text(
+                'Finish Transaction',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -471,8 +776,12 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
             myLocationEnabled: true,
             myLocationButtonEnabled: true,
             onMapCreated: (controller) {
-              _mapController = controller;
-              _updateMap();
+              if (mounted) {
+                _mapController = controller;
+                _updateMap();
+              } else {
+                controller.dispose();
+              }
             },
           ),
           
@@ -509,7 +818,10 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
                       ),
                     ),
                     _buildStatusCard(),
-                    _buildDeliveryProofCard(),
+                    _buildPickupPhotoCard(), // Parcel photo (customer)
+                    _buildRiderPickupPhotoCard(), // Pickup photo (rider)
+                    _buildDeliveryProofCard(), // Dropoff photo (rider)
+                    _buildFinishTransactionButton(),
                   ],
                 ),
               );
