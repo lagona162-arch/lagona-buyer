@@ -13,12 +13,24 @@ import 'service_selection_page.dart';
 
 class CustomerRegistrationPage extends StatefulWidget {
 	static const String routeName = '/register';
-	final String? userId; // User ID from registration
+	final String? userId; // User ID from registration (for edit mode)
+	final String? email; // Email address for registration
+	final String? password; // Password for registration
+	final String? firstName; // First name for registration
+	final String? lastName; // Last name for registration
+	final String? middleInitial; // Middle initial for registration
+	final DateTime? birthdate; // Birthdate for registration
 	final bool isEditMode; // True if editing existing address, false for new registration
 	
 	const CustomerRegistrationPage({
 		super.key, 
 		this.userId,
+		this.email,
+		this.password,
+		this.firstName,
+		this.lastName,
+		this.middleInitial,
+		this.birthdate,
 		this.isEditMode = false,
 	});
 
@@ -38,6 +50,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 	bool _liveTracking = false;
 	final _formKey = GlobalKey<FormState>();
 	String? _userId; // Store user ID
+	bool _isSubmitting = false; // Prevent double-clicks
 	
 	
 	Future<void> _updateMapCamera() async {
@@ -354,6 +367,12 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 	}
 
 	Future<void> submit() async {
+		// Prevent double-clicks
+		if (_isSubmitting) {
+			debugPrint('⚠️ Submit already in progress, ignoring duplicate click');
+			return;
+		}
+		
 		debugPrint('=== Submit button clicked ===');
 		debugPrint('selectedLatLng: $selectedLatLng');
 		debugPrint('selectedAddress: $selectedAddress');
@@ -370,80 +389,44 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 			return;
 		}
 		
+		setState(() => _isSubmitting = true);
+		
 		// Use coordinates as fallback if address is still null
 		final address = selectedAddress ?? '${selectedLatLng!.latitude.toStringAsFixed(6)}, ${selectedLatLng!.longitude.toStringAsFixed(6)}';
 		
 		final phone = phoneController.text.trim().replaceAll(RegExp(r'[\s\-\(\)]'), '');
 		
-		// Get user ID - prefer widget parameter, then try auth
-		String? userId = _userId;
-		
-		// If in edit mode, always use current authenticated user
-		if (widget.isEditMode) {
-			final user = Supabase.instance.client.auth.currentUser;
-			if (user == null) {
-				debugPrint('No authenticated user found in edit mode');
-				ScaffoldMessenger.of(context).showSnackBar(
-					const SnackBar(
-						content: Text('Please log in to edit your address'),
-						backgroundColor: Colors.red,
-						duration: Duration(seconds: 3),
-					),
-				);
-				return;
-			}
-			userId = user.id;
-		} else if (userId == null) {
-			// Try to get from auth (for new registration flow)
-			var user = Supabase.instance.client.auth.currentUser;
-			if (user == null) {
-				final session = Supabase.instance.client.auth.currentSession;
-				if (session?.user != null) {
-					user = session!.user;
-					debugPrint('Got user from session: ${user.id}');
-				}
-			}
-			
-			if (user == null) {
-				// Try refreshing the session
-				try {
-					final refreshedSession = await Supabase.instance.client.auth.refreshSession();
-					user = refreshedSession.user;
-					debugPrint('Got user from refreshed session: ${user?.id}');
-				} catch (e) {
-					debugPrint('Error refreshing session: $e');
-				}
-			}
-			
-			userId = user?.id;
-		}
-		
-		if (userId == null) {
-			debugPrint('No user ID found - user needs to verify email or log in');
-			ScaffoldMessenger.of(context).showSnackBar(
-				const SnackBar(
-					content: Text('Please verify your email first, or log in if you already have an account'),
-					duration: Duration(seconds: 5),
-				),
-			);
-			return;
-		}
-		
 		try {
-			debugPrint('Updating customer address...');
-			debugPrint('Using user ID: $userId');
-			await _supabase.updateCustomerAddress(
-				customerId: userId,
-				address: address,
-				latitude: selectedLatLng!.latitude,
-				longitude: selectedLatLng!.longitude,
-				phone: phone,
-			);
-			debugPrint('✅ Customer address updated successfully');
-			
-			if (mounted) {
-				if (widget.isEditMode) {
-					// For edit mode, just show success and go back
+			if (widget.isEditMode) {
+				// For edit mode, get user ID from current authenticated user
+				final user = Supabase.instance.client.auth.currentUser;
+				if (user == null) {
+					debugPrint('No authenticated user found in edit mode');
+					if (mounted) {
+						ScaffoldMessenger.of(context).showSnackBar(
+							const SnackBar(
+								content: Text('Please log in to edit your address'),
+								backgroundColor: Colors.red,
+								duration: Duration(seconds: 3),
+							),
+						);
+					}
+					return;
+				}
+				final userId = user.id;
+				// For edit mode, just update address
+				debugPrint('Updating customer address...');
+				debugPrint('Using user ID: $userId');
+				await _supabase.updateCustomerAddress(
+					customerId: userId!,
+					address: address,
+					latitude: selectedLatLng!.latitude,
+					longitude: selectedLatLng!.longitude,
+					phone: phone,
+				);
+				debugPrint('✅ Customer address updated successfully');
+				
+				if (mounted) {
 					ScaffoldMessenger.of(context).showSnackBar(
 						const SnackBar(
 							content: Text('Address updated successfully!'),
@@ -452,13 +435,106 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 						),
 					);
 					Navigator.of(context).pop();
-				} else {
-					// For new registration, show success message and redirect to login
+				}
+			} else {
+				// For new registration, create auth account first, then update address
+				if (widget.email == null || widget.password == null || 
+				    widget.firstName == null || widget.lastName == null) {
+					debugPrint('❌ Missing registration data');
+					if (mounted) {
+						ScaffoldMessenger.of(context).showSnackBar(
+							const SnackBar(
+								content: Text('Registration data is missing. Please try again.'),
+								backgroundColor: Colors.red,
+								duration: Duration(seconds: 3),
+							),
+						);
+					}
+					return;
+				}
+				
+				String? newUserId;
+				
+				// Check if user already exists (might have been created in a previous attempt)
+				try {
+					// Try to sign in first to check if account exists
+					final signInResponse = await _supabase.signInWithPassword(
+						widget.email!,
+						widget.password!,
+					);
+					newUserId = signInResponse.user?.id;
+					debugPrint('✅ User already exists, using existing account: $newUserId');
+				} catch (signInError) {
+					// User doesn't exist or password is wrong, proceed with signup
+					debugPrint('User does not exist, creating new account...');
+					
+					try {
+						debugPrint('Creating auth account and user record...');
+						// Create auth account - this will send verification email
+						// We do this AFTER customer registration is complete (when user clicks "Confirm & Register")
+						final response = await _supabase.signUpWithPassword(
+							email: widget.email!,
+							password: widget.password!,
+							firstName: widget.firstName!,
+							lastName: widget.lastName!,
+							middleInitial: widget.middleInitial,
+							birthdate: widget.birthdate,
+						);
+						
+						newUserId = response.user?.id;
+						if (newUserId == null) {
+							throw Exception('Failed to create user account');
+						}
+						
+						debugPrint('✅ Auth account created with user ID: $newUserId');
+					} catch (signUpError) {
+						// Handle rate limit or other signup errors
+						final errorStr = signUpError.toString();
+						if (errorStr.contains('over_email_send_rate_limit') || 
+						    errorStr.contains('429')) {
+							// Rate limit hit - user might already exist, try to find them
+							debugPrint('⚠️ Rate limit hit, checking if user exists in database...');
+							try {
+								// Try to sign in - if it works, user exists
+								final retrySignIn = await _supabase.signInWithPassword(
+									widget.email!,
+									widget.password!,
+								);
+								newUserId = retrySignIn.user?.id;
+								debugPrint('✅ User exists, using existing account: $newUserId');
+							} catch (_) {
+								// User doesn't exist, show rate limit error
+								throw Exception('Email sending rate limit exceeded. Please wait a minute and try again.');
+							}
+						} else {
+							// Other error, rethrow
+							rethrow;
+						}
+					}
+				}
+				
+				if (newUserId == null) {
+					throw Exception('Failed to get user ID');
+				}
+				
+				// Now update customer address
+				debugPrint('Updating customer address...');
+				await _supabase.updateCustomerAddress(
+					customerId: newUserId,
+					address: address,
+					latitude: selectedLatLng!.latitude,
+					longitude: selectedLatLng!.longitude,
+					phone: phone,
+				);
+				debugPrint('✅ Customer address updated successfully');
+				
+				if (mounted) {
+					// Show success message
 					ScaffoldMessenger.of(context).showSnackBar(
-						const SnackBar(
-							content: Text('Registration complete! Please verify your email and log in.'),
+						SnackBar(
+							content: Text('Registration complete! Verification email sent to ${widget.email}. Please check your email and verify your account.'),
 							backgroundColor: Colors.green,
-							duration: Duration(seconds: 3),
+							duration: const Duration(seconds: 5),
 						),
 					);
 					
@@ -473,13 +549,22 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 			debugPrint('❌ Registration failed: $e');
 			debugPrint('Stack trace: $stackTrace');
 			if (mounted) {
+				String errorMessage = e.toString();
+				// Clean up error message
+				if (errorMessage.contains('Exception: ')) {
+					errorMessage = errorMessage.replaceAll('Exception: ', '');
+				}
 				ScaffoldMessenger.of(context).showSnackBar(
 					SnackBar(
-						content: Text('Registration failed: ${e.toString()}'),
+						content: Text('Registration failed: $errorMessage'),
 						backgroundColor: Colors.red,
 						duration: const Duration(seconds: 5),
 					),
 				);
+			}
+		} finally {
+			if (mounted) {
+				setState(() => _isSubmitting = false);
 			}
 		}
 	}
@@ -707,16 +792,25 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 										),
 										const SizedBox(height: 8),
 										ElevatedButton(
-											onPressed: submit,
+											onPressed: _isSubmitting ? null : submit,
 											style: ElevatedButton.styleFrom(
 												backgroundColor: Colors.green,
 												foregroundColor: Colors.white,
 												padding: const EdgeInsets.symmetric(vertical: 16),
 											),
-											child: const Text(
-												'Confirm & Register',
-												style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-											),
+											child: _isSubmitting
+												? const SizedBox(
+													height: 20,
+													width: 20,
+													child: CircularProgressIndicator(
+														strokeWidth: 2,
+														color: Colors.white,
+													),
+												  )
+												: const Text(
+													'Confirm & Register',
+													style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+												  ),
 										),
 									],
 								),

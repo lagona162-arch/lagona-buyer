@@ -18,6 +18,20 @@ class SupabaseService {
     return _client.auth.signInWithPassword(email: email, password: password);
   }
 
+  /// Resends the verification email to the user
+  Future<void> resendVerificationEmail(String email) async {
+    try {
+      await _client.auth.resend(
+        type: OtpType.signup,
+        email: email,
+      );
+      debugPrint('✅ Verification email sent to: $email');
+    } catch (e) {
+      debugPrint('❌ Error resending verification email: $e');
+      rethrow;
+    }
+  }
+
   Future<AuthResponse> signUpWithPassword({
     required String email,
     required String password,
@@ -39,6 +53,11 @@ class SupabaseService {
     
     try {
       debugPrint('Attempting Supabase auth.signUp...');
+      // IMPORTANT: To prevent Supabase from sending an email during signup,
+      // you must disable "Confirm email" in your Supabase project dashboard:
+      // Dashboard > Authentication > Providers > Email > Disable "Confirm email"
+      // This prevents the automatic email on signup, and we'll send it manually
+      // after the customer completes registration on the Customer Registration page.
       final response = await _client.auth.signUp(
         email: email,
         password: password,
