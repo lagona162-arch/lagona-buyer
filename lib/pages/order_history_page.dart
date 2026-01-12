@@ -646,25 +646,25 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                     children: [
                       Flexible(
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Total',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textSecondary,
-                              ),
+                        children: [
+                          Text(
+                            'Total',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
                             ),
-                            Text(
-                              '₱${total.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
-                              ),
+                          ),
+                          Text(
+                            '₱${total.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primary,
                             ),
-                          ],
+                          ),
+                        ],
                         ),
                       ),
                       if (normalizedStatus == 'pending' || 
@@ -678,31 +678,31 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                           normalizedStatus == 'on the way')
                         Flexible(
                           child: ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).pushNamed(
-                                OrderTrackingPage.routeName,
-                                arguments: delivery['id'] as String,
-                              );
-                            },
-                            icon: const Icon(Icons.location_on, size: 18),
-                            label: const Text('Track'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          onPressed: () {
+                            Navigator.of(context).pushNamed(
+                              OrderTrackingPage.routeName,
+                              arguments: delivery['id'] as String,
+                            );
+                          },
+                          icon: const Icon(Icons.location_on, size: 18),
+                          label: const Text('Track'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             ),
                           ),
                         )
                       else if (normalizedStatus == 'delivered')
                         Flexible(
                           child: ElevatedButton.icon(
-                            onPressed: () => _markAsCompleted(delivery),
-                            icon: const Icon(Icons.check_circle, size: 18),
-                            label: const Text('Mark as Completed'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.success,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          onPressed: () => _markAsCompleted(delivery),
+                          icon: const Icon(Icons.check_circle, size: 18),
+                          label: const Text('Mark as Completed'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             ),
                           ),
                         ),
@@ -780,26 +780,26 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                      MediaQuery.of(context).padding.top,
         ),
         child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(40),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.shopping_bag_outlined,
-                  size: 80,
-                  color: AppColors.textSecondary.withOpacity(0.5),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  message,
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: AppColors.textSecondary,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.shopping_bag_outlined,
+              size: 80,
+              color: AppColors.textSecondary.withOpacity(0.5),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              style: TextStyle(
+                fontSize: 16,
+                color: AppColors.textSecondary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
             ),
           ),
         ),

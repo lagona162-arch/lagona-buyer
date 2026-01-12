@@ -131,7 +131,7 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
       
       _previousStatus = padala.status;
       if (mounted) {
-        _updateMap();
+      _updateMap();
       }
     } catch (e) {
       if (mounted) {
@@ -196,18 +196,18 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
     // Update camera to show all markers
     if (mounted && _mapController != null && _pickupLocation != null && _dropoffLocation != null) {
       try {
-        final bounds = LatLngBounds(
-          southwest: LatLng(
-            math.min(_pickupLocation!.latitude, _dropoffLocation!.latitude) - 0.01,
-            math.min(_pickupLocation!.longitude, _dropoffLocation!.longitude) - 0.01,
-          ),
-          northeast: LatLng(
-            math.max(_pickupLocation!.latitude, _dropoffLocation!.latitude) + 0.01,
-            math.max(_pickupLocation!.longitude, _dropoffLocation!.longitude) + 0.01,
-          ),
-        );
-        
-        _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 100));
+      final bounds = LatLngBounds(
+        southwest: LatLng(
+          math.min(_pickupLocation!.latitude, _dropoffLocation!.latitude) - 0.01,
+          math.min(_pickupLocation!.longitude, _dropoffLocation!.longitude) - 0.01,
+        ),
+        northeast: LatLng(
+          math.max(_pickupLocation!.latitude, _dropoffLocation!.latitude) + 0.01,
+          math.max(_pickupLocation!.longitude, _dropoffLocation!.longitude) + 0.01,
+        ),
+      );
+      
+      _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 100));
       } catch (e) {
         // Controller might be disposed, ignore the error
         debugPrint('Error updating map camera: $e');
@@ -535,12 +535,12 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
               children: [
                 Icon(Icons.check_circle, color: AppColors.success, size: 20),
                 const SizedBox(width: 8),
-                const Text(
-                  'Delivery Proof',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+            const Text(
+              'Delivery Proof',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
                 ),
               ],
             ),
@@ -645,13 +645,6 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
       return const SizedBox.shrink();
     }
     
-    // Debug logging
-    debugPrint('🔍 Checking finish button visibility:');
-    debugPrint('   Status: ${_padala!.status}');
-    debugPrint('   Is dropoff: ${_padala!.status == PadalaStatus.dropoff}');
-    debugPrint('   Is completed: ${_padala!.status == PadalaStatus.completed}');
-    debugPrint('   Has dropoff photo: ${_padala!.dropoffPhotoUrl != null}');
-    
     // Show button if:
     // 1. Status is dropoff (delivered but not yet completed by customer), OR
     // 2. Status is completed but has dropoff photo (edge case - rider marked as completed but customer hasn't confirmed)
@@ -661,11 +654,8 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
                         _padala!.riderId != null);
     
     if (!shouldShow) {
-      debugPrint('   ❌ Button hidden - conditions not met');
       return const SizedBox.shrink();
     }
-    
-    debugPrint('   ✅ Button will be shown');
     
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -706,9 +696,9 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -777,8 +767,8 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
             myLocationButtonEnabled: true,
             onMapCreated: (controller) {
               if (mounted) {
-                _mapController = controller;
-                _updateMap();
+              _mapController = controller;
+              _updateMap();
               } else {
                 controller.dispose();
               }

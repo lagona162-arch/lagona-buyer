@@ -51,6 +51,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
   bool _paymentRequestShown = false;
   bool _hasSubmittedPayment = false;
   bool _isPaymentApproved = false;
+  bool _hasShownDeliveryNotification = false;
 
   @override
   void initState() {
@@ -164,6 +165,38 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       final paymentRequested = delivery['payment_requested'] == true;
       final previousPaymentRequested = _delivery?['payment_requested'] == true;
       
+      // Check if status changed to delivered
+      final wasDelivered = previousStatus == 'delivered' || previousStatus == 'completed';
+      final isNowDelivered = deliveryStatus == 'delivered';
+      
+      // Show notification when order is delivered
+      if (isNowDelivered && !wasDelivered && !_hasShownDeliveryNotification && mounted) {
+        _hasShownDeliveryNotification = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.white),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        '🎉 Your order has been delivered! Please confirm to complete the transaction.',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                    ),
+                  ],
+                ),
+                backgroundColor: AppColors.success,
+                duration: const Duration(seconds: 5),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        });
+      }
+      
       
       
       await _checkPaymentStatus();
@@ -200,7 +233,14 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         if (previousStatus != deliveryStatus) {
           _startPolling();
         }
-        if (_isPaymentApproved) {
+        // Calculate ETA when payment is approved OR when delivery is dropped off/delivered
+        final isDroppedOffOrDelivered = deliveryStatus == 'dropoff' || 
+                                       deliveryStatus == 'drop_off' ||
+                                       deliveryStatus == 'delivered' || 
+                                       deliveryStatus == 'completed';
+        final shouldShowTracking = _isPaymentApproved || isDroppedOffOrDelivered;
+        
+        if (shouldShowTracking) {
           _updateMarkers();
           
           
@@ -222,14 +262,14 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
             
             _etaTimer?.cancel();
             _etaTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-              if (mounted && _estimatedArrival != null && _isPaymentApproved) {
+              if (mounted && _estimatedArrival != null && shouldShowTracking) {
                 setState(() {
                   
                 });
               }
               
               
-              if (mounted && rider != null && _isPaymentApproved) {
+              if (mounted && rider != null && shouldShowTracking) {
                 final destination = _userLocation ?? dropoff;
                 if (destination != null) {
                   _fetchRouteForETA(rider, destination);
@@ -991,7 +1031,84 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
     if (_delivery == null) return false;
     final statusRaw = _delivery!['status'];
     final status = statusRaw?.toString().toLowerCase() ?? 'pending';
-    return status == 'delivered';
+    // Show completion button when:
+    // - Status is 'delivered' (for food/pabili orders)
+    // - Status is 'dropoff' (for padala/parcel orders)
+    // But not when already 'completed'
+    return (status == 'delivered' || status == 'dropoff') && status != 'completed';
+  }
+  
+  Widget _buildCompletionCard() {
+    if (!_canMarkAsCompleted()) {
+      return const SizedBox.shrink();
+    }
+    
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: AppColors.success.withOpacity(0.3), width: 2),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.check_circle, color: AppColors.success, size: 24),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _delivery?['status']?.toString().toLowerCase() == 'dropoff'
+                        ? 'Item Dropped Off'
+                        : 'Order Delivered',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _delivery?['status']?.toString().toLowerCase() == 'dropoff'
+                  ? 'Your item has been dropped off! Please confirm to complete the transaction.'
+                  : 'Your order has been delivered! Please confirm to complete the transaction.',
+              style: TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _markAsCompleted,
+              icon: const Icon(Icons.check_circle, color: Colors.white, size: 20),
+              label: const Text(
+                'Confirm & Complete',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                elevation: 2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   bool _canSubmitPayment() {
@@ -1014,24 +1131,33 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
     final nameController = TextEditingController();
     File? paymentImage;
     bool isLoading = false;
-    
+    bool _controllersDisposed = false;
+
     // Dispose controllers when dialog closes
+    // Use a delayed callback to ensure dialog is fully closed
     void disposeControllers() {
-      try {
-        referenceController.dispose();
-      } catch (e) {
-        // Controller already disposed, ignore
-      }
-      try {
-        amountController.dispose();
-      } catch (e) {
-        // Controller already disposed, ignore
-      }
-      try {
-        nameController.dispose();
-      } catch (e) {
-        // Controller already disposed, ignore
-      }
+      // Prevent multiple disposal calls
+      if (_controllersDisposed) return;
+      _controllersDisposed = true;
+      
+      // Delay disposal to ensure dialog is fully closed and widgets are done rebuilding
+      Future.delayed(const Duration(milliseconds: 500), () {
+        try {
+          referenceController.dispose();
+        } catch (e) {
+          // Controller already disposed, ignore
+        }
+        try {
+          amountController.dispose();
+        } catch (e) {
+          // Controller already disposed, ignore
+        }
+        try {
+          nameController.dispose();
+        } catch (e) {
+          // Controller already disposed, ignore
+        }
+      });
     }
     
     double totalAmount = 0;
@@ -1078,13 +1204,11 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       builder: (dialogContext) => WillPopScope(
         onWillPop: () async {
           // Dispose controllers after dialog is closed
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            disposeControllers();
-          });
+          disposeControllers();
           return true;
         },
         child: StatefulBuilder(
-          builder: (dialogContext, setDialogState) => AlertDialog(
+        builder: (dialogContext, setDialogState) => AlertDialog(
           title: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1094,9 +1218,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                 onPressed: () {
                   Navigator.of(dialogContext).pop();
                   // Dispose controllers after dialog is closed
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    disposeControllers();
-                  });
+                  disposeControllers();
                 },
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
@@ -1382,9 +1504,7 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
               onPressed: isLoading ? null : () {
                 Navigator.of(context).pop();
                 // Dispose controllers after dialog is closed
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  disposeControllers();
-                });
+                disposeControllers();
               },
               child: const Text('Cancel'),
             ),
@@ -1428,13 +1548,11 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                   );
 
                   if (context.mounted) {
-                    // Close dialog first, then dispose controllers after dialog is closed
+                    // Close dialog first
                     Navigator.of(context).pop();
                     
-                    // Dispose controllers after dialog is closed using post-frame callback
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      disposeControllers();
-                    });
+                    // Dispose controllers after dialog is fully closed
+                    disposeControllers();
                     
                     setState(() {
                       _hasSubmittedPayment = true;
@@ -1498,20 +1616,6 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         ),
       ),
     );
-
-    
-    
-    
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      try {
-    referenceController.dispose();
-    amountController.dispose();
-    nameController.dispose();
-      } catch (e) {
-        
-        debugPrint('Error disposing controllers: $e');
-      }
-    });
   }
 
   void _showFullScreenImage(BuildContext context, File imageFile) {
@@ -1918,8 +2022,18 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       body: Stack(
         children: [
           
-          if (_isPaymentApproved)
-            GoogleMap(
+          // Show map when payment is approved OR when delivery is dropped off/delivered/completed
+          Builder(
+            builder: (context) {
+              final deliveryStatus = _delivery?['status']?.toString().toLowerCase() ?? '';
+              final isDroppedOffOrDelivered = deliveryStatus == 'dropoff' || 
+                                              deliveryStatus == 'drop_off' ||
+                                              deliveryStatus == 'delivered' || 
+                                              deliveryStatus == 'completed';
+              final shouldShowMap = _isPaymentApproved || isDroppedOffOrDelivered;
+              
+              if (shouldShowMap) {
+                return GoogleMap(
               initialCameraPosition: CameraPosition(
                 target: initialCamera,
                 zoom: 13,
@@ -1935,9 +2049,9 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                 mapController = controller;
                 _updateCamera();
               },
-            )
-          else
-            Container(
+                );
+              }
+              return Container(
               color: Colors.grey[200],
               child: Center(
                 child: Column(
@@ -1960,12 +2074,25 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                   ],
                 ),
               ),
-            ),
+              );
+            },
+          ),
           
           
-          if ((_delivery?['payment_requested'] == true && !_hasSubmittedPayment) ||
-              (_hasSubmittedPayment && !_isPaymentApproved && _delivery?['status']?.toString().toLowerCase() != 'prepared'))
-            Container(
+          // Hide payment screen if delivery is dropped off, delivered, or completed
+          Builder(
+            builder: (context) {
+              final deliveryStatus = _delivery?['status']?.toString().toLowerCase() ?? '';
+              final isDroppedOffOrDelivered = deliveryStatus == 'dropoff' || 
+                                              deliveryStatus == 'delivered' || 
+                                              deliveryStatus == 'completed';
+              
+              // Don't show payment screen if delivery is already dropped off/delivered/completed
+              // (payment must have been approved for rider to deliver)
+              if (!isDroppedOffOrDelivered &&
+                  ((_delivery?['payment_requested'] == true && !_hasSubmittedPayment) ||
+                  (_hasSubmittedPayment && !_isPaymentApproved && deliveryStatus != 'prepared' && !isDroppedOffOrDelivered)))
+                return Container(
               color: Colors.white.withOpacity(0.95),
               child: Center(
                 child: Padding(
@@ -2010,6 +2137,9 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                   ),
                 ),
               ),
+                );
+              return const SizedBox.shrink();
+            },
           ),
           
           Positioned(
@@ -2106,181 +2236,6 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                         ),
                       ),
                     
-                    if (_delivery != null) ...[
-                      Builder(
-                        builder: (context) {
-                          final statusRaw = _delivery!['status'];
-                          final status = statusRaw?.toString().toLowerCase() ?? '';
-                          final isPickedUpOrInTransit = status == 'picked_up' || 
-                                                         status == 'picked up' || 
-                                                         status == 'in_transit' || 
-                                                         status == 'in transit';
-                          final isDeliveredOrCompleted = status == 'delivered' || status == 'completed';
-                          
-                          if ((isPickedUpOrInTransit && _delivery!['pickup_image'] != null) ||
-                              (isDeliveredOrCompleted && (_delivery!['pickup_image'] != null || _delivery!['dropoff_image'] != null)))
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    isPickedUpOrInTransit 
-                                        ? 'Pickup Verification'
-                                        : 'Delivery Photos',
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.textPrimary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      
-                                      if (_delivery!['pickup_image'] != null && 
-                                          (isPickedUpOrInTransit || isDeliveredOrCompleted))
-                                        Expanded(
-                                          child: GestureDetector(
-                                            onTap: () => _showFullScreenNetworkImage(
-                                              context,
-                                              _delivery!['pickup_image'] as String,
-                                            ),
-                                            child: Container(
-                                              margin: const EdgeInsets.only(right: 6),
-                                              decoration: BoxDecoration(
-                                                borderRadius: BorderRadius.circular(8),
-                                                border: Border.all(color: AppColors.border),
-                                              ),
-                                              child: Column(
-                                                children: [
-                                                  ClipRRect(
-                                                    borderRadius: const BorderRadius.vertical(
-                                                      top: Radius.circular(7),
-                                                    ),
-                                                    child: Image.network(
-                                                      _delivery!['pickup_image'] as String,
-                                                      height: 100,
-                                                      width: double.infinity,
-                                                      fit: BoxFit.cover,
-                                                      errorBuilder: (_, __, ___) => Container(
-                                                        height: 100,
-                                                        color: Colors.grey[200],
-                                                        child: const Icon(
-                                                          Icons.image_not_supported,
-                                                          color: Colors.grey,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  Container(
-                                                    padding: const EdgeInsets.all(8),
-                                                    child: Row(
-                                                      mainAxisAlignment: MainAxisAlignment.center,
-                                                      children: [
-                                                        const Icon(
-                                                          Icons.store,
-                                                          size: 14,
-                                                          color: Colors.green,
-                                                        ),
-                                                        const SizedBox(width: 4),
-                                                        const Text(
-                                                          'Pickup',
-                                                          style: TextStyle(
-                                                            fontSize: 11,
-                                                            fontWeight: FontWeight.w600,
-                                                          ),
-                                                        ),
-                                                        const SizedBox(width: 4),
-                                                        const Icon(
-                                                          Icons.fullscreen,
-                                                          size: 12,
-                                                          color: Colors.grey,
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      
-                                      if (_delivery!['dropoff_image'] != null && isDeliveredOrCompleted)
-                                        Expanded(
-                                          child: GestureDetector(
-                                            onTap: () => _showFullScreenNetworkImage(
-                                              context,
-                                              _delivery!['dropoff_image'] as String,
-                                            ),
-                                            child: Container(
-                                              margin: const EdgeInsets.only(left: 6),
-                                              decoration: BoxDecoration(
-                                                borderRadius: BorderRadius.circular(8),
-                                                border: Border.all(color: AppColors.border),
-                                              ),
-                                              child: Column(
-                                                children: [
-                                                  ClipRRect(
-                                                    borderRadius: const BorderRadius.vertical(
-                                                      top: Radius.circular(7),
-                                                    ),
-                                                    child: Image.network(
-                                                      _delivery!['dropoff_image'] as String,
-                                                      height: 100,
-                                                      width: double.infinity,
-                                                      fit: BoxFit.cover,
-                                                      errorBuilder: (_, __, ___) => Container(
-                                                        height: 100,
-                                                        color: Colors.grey[200],
-                                                        child: const Icon(
-                                                          Icons.image_not_supported,
-                                                          color: Colors.grey,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  Container(
-                                                    padding: const EdgeInsets.all(8),
-                                                    child: Row(
-                                                      mainAxisAlignment: MainAxisAlignment.center,
-                                                      children: [
-                                                        const Icon(
-                                                          Icons.location_on,
-                                                          size: 14,
-                                                          color: Colors.red,
-                                                        ),
-                                                        const SizedBox(width: 4),
-                                                        const Text(
-                                                          'Dropoff',
-                                                          style: TextStyle(
-                                                            fontSize: 11,
-                                                            fontWeight: FontWeight.w600,
-                                                          ),
-                                                        ),
-                                                        const SizedBox(width: 4),
-                                                        const Icon(
-                                                          Icons.fullscreen,
-                                                          size: 12,
-                                                          color: Colors.grey,
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
-                          return const SizedBox.shrink();
-                        },
-                      ),
-                    ],
                     
                     if (_delivery != null && 
                         (_delivery!['status']?.toString().toLowerCase() ?? '') == 'pending')
@@ -2354,11 +2309,22 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                       },
                     ),
                     
+                    Builder(
+                      builder: (context) {
+                        final statusRaw = _delivery?['status'];
+                        final currentStatus = statusRaw?.toString().toLowerCase() ?? '';
+                        final isDroppedOffOrDelivered = currentStatus == 'dropoff' || 
+                                                        currentStatus == 'drop_off' ||
+                                                        currentStatus == 'delivered' || 
+                                                        currentStatus == 'completed';
+                        
+                        // Don't show payment waiting messages if item is already dropped off
                     if (_delivery != null && 
                         _delivery!['rider_id'] != null &&
                         _delivery!['payment_requested'] != true &&
-                        !_hasSubmittedPayment)
-                      Padding(
+                            !_hasSubmittedPayment &&
+                            !isDroppedOffOrDelivered)
+                          return Padding(
                         padding: const EdgeInsets.only(top: 12),
                         child: Container(
                           padding: const EdgeInsets.all(12),
@@ -2384,12 +2350,26 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                             ],
                           ),
                         ),
-                      ),
+                          );
+                        return const SizedBox.shrink();
+                      },
+                    ),
                     
+                    Builder(
+                      builder: (context) {
+                        final statusRaw = _delivery?['status'];
+                        final currentStatus = statusRaw?.toString().toLowerCase() ?? '';
+                        final isDroppedOffOrDelivered = currentStatus == 'dropoff' || 
+                                                        currentStatus == 'drop_off' ||
+                                                        currentStatus == 'delivered' || 
+                                                        currentStatus == 'completed';
+                        
+                        // Don't show payment requested messages if item is already dropped off
                     if (_delivery != null && 
                         _delivery!['payment_requested'] == true &&
-                        !_hasSubmittedPayment)
-                      Padding(
+                            !_hasSubmittedPayment &&
+                            !isDroppedOffOrDelivered)
+                          return Padding(
                         padding: const EdgeInsets.only(top: 12),
                         child: Container(
                           padding: const EdgeInsets.all(12),
@@ -2415,14 +2395,29 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                             ],
                           ),
                         ),
-                      ),
+                          );
+                        return const SizedBox.shrink();
+                      },
+                    ),
                     
                     
+                    Builder(
+                      builder: (context) {
+                        final statusRaw = _delivery?['status'];
+                        final currentStatus = statusRaw?.toString().toLowerCase() ?? '';
+                        final isDroppedOffOrDelivered = currentStatus == 'dropoff' || 
+                                                        currentStatus == 'drop_off' ||
+                                                        currentStatus == 'delivered' || 
+                                                        currentStatus == 'completed';
+                        
+                        // Don't show payment pending messages if item is already dropped off
+                        // (payment must have been approved for rider to deliver)
                     if (_delivery != null && 
                         _hasSubmittedPayment &&
                         !_isPaymentApproved &&
-                        _delivery!['rider_id'] != null)
-                      Padding(
+                            _delivery!['rider_id'] != null &&
+                            !isDroppedOffOrDelivered)
+                          return Padding(
                         padding: const EdgeInsets.only(top: 12),
                         child: Container(
                           padding: const EdgeInsets.all(12),
@@ -2450,11 +2445,284 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                             ],
                           ),
                         ),
-                      ),
+                          );
+                        return const SizedBox.shrink();
+                      },
+                    ),
                     
+                    
+                    Builder(
+                      builder: (context) {
+                        final statusRaw = _delivery?['status'];
+                        final currentStatus = statusRaw?.toString().toLowerCase() ?? '';
+                        final isDroppedOffOrDelivered = currentStatus == 'dropoff' || 
+                                                        currentStatus == 'drop_off' ||
+                                                        currentStatus == 'delivered' || 
+                                                        currentStatus == 'completed';
+                        
+                        // Don't show payment button if item is already dropped off (payment already approved)
+                        if (_canSubmitPayment() && !isDroppedOffOrDelivered)
+                          return Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _showPaymentDialog,
+                            icon: const Icon(Icons.payment, size: 20),
+                            label: const Text('Submit Payment'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                        ),
+                          );
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                    
+                  ],
+                ),
+              ),
+            ),
+          ),
+          
+          // Bottom sheet for completion button when delivery is dropped off
+          // Show when payment is approved OR when delivery is dropped off/delivered/completed
+          if (_delivery != null) ...[
+            Builder(
+              builder: (context) {
+                final deliveryStatus = _delivery!['status']?.toString().toLowerCase() ?? '';
+                final isDroppedOffOrDelivered = deliveryStatus == 'dropoff' || 
+                                                deliveryStatus == 'drop_off' ||
+                                                deliveryStatus == 'delivered' || 
+                                                deliveryStatus == 'completed';
+                
+                if (_isPaymentApproved || isDroppedOffOrDelivered) {
+                  return DraggableScrollableSheet(
+              initialChildSize: 0.35,
+              minChildSize: 0.25,
+              maxChildSize: 0.85,
+              builder: (context, scrollController) {
+                return Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 10,
+                      ),
+                    ],
+                  ),
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: AppColors.border,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      
+                      // Completion card - most important, shown prominently at top
+                      _buildCompletionCard(),
+                      
+                      // Payment button if needed
+                      if (_canSubmitPayment())
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                              onPressed: _showPaymentDialog,
+                              icon: const Icon(Icons.payment, size: 20),
+                              label: const Text('Submit Payment'),
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                          ),
+                        ),
+                      
+                      // Delivery photos if delivered
+                      if (_delivery != null) ...[
+                        Builder(
+                          builder: (context) {
+                            final statusRaw = _delivery!['status'];
+                            final status = statusRaw?.toString().toLowerCase() ?? '';
+                          final isDroppedOffOrDelivered = status == 'dropoff' || 
+                                                          status == 'drop_off' ||
+                                                          status == 'delivered' || 
+                                                          status == 'completed';
+                          
+                          if (isDroppedOffOrDelivered && 
+                                (_delivery!['pickup_image'] != null || _delivery!['dropoff_image'] != null))
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Delivery Photos',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      children: [
+                                        if (_delivery!['pickup_image'] != null)
+                                          Expanded(
+                                            child: GestureDetector(
+                                              onTap: () => _showFullScreenNetworkImage(
+                                                context,
+                                                _delivery!['pickup_image'] as String,
+                                              ),
+                                              child: Container(
+                                                margin: const EdgeInsets.only(right: 6),
+                                                decoration: BoxDecoration(
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  border: Border.all(color: AppColors.border),
+                                                ),
+                                                child: Column(
+                                                  children: [
+                                                    ClipRRect(
+                                                      borderRadius: const BorderRadius.vertical(
+                                                        top: Radius.circular(7),
+                                                      ),
+                                                      child: Image.network(
+                                                        _delivery!['pickup_image'] as String,
+                                                        height: 100,
+                                                        width: double.infinity,
+                                                        fit: BoxFit.cover,
+                                                        errorBuilder: (_, __, ___) => Container(
+                                                          height: 100,
+                                                          color: Colors.grey[200],
+                                                          child: const Icon(
+                                                            Icons.image_not_supported,
+                                                            color: Colors.grey,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      padding: const EdgeInsets.all(8),
+                                                      child: const Row(
+                                                        mainAxisAlignment: MainAxisAlignment.center,
+                                                        children: [
+                                                          Icon(
+                                                            Icons.store,
+                                                            size: 14,
+                                                            color: Colors.green,
+                                                          ),
+                                                          SizedBox(width: 4),
+                                                          Text(
+                                                            'Pickup',
+                                                            style: TextStyle(
+                                                              fontSize: 11,
+                                                              fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        if (_delivery!['dropoff_image'] != null)
+                                          Expanded(
+                                            child: GestureDetector(
+                                              onTap: () => _showFullScreenNetworkImage(
+                                                context,
+                                                _delivery!['dropoff_image'] as String,
+                                              ),
+                                              child: Container(
+                                                margin: const EdgeInsets.only(left: 6),
+                                                decoration: BoxDecoration(
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  border: Border.all(color: AppColors.border),
+                                                ),
+                                                child: Column(
+                                                  children: [
+                                                    ClipRRect(
+                                                      borderRadius: const BorderRadius.vertical(
+                                                        top: Radius.circular(7),
+                                                      ),
+                                                      child: Image.network(
+                                                        _delivery!['dropoff_image'] as String,
+                                                        height: 100,
+                                                        width: double.infinity,
+                                                        fit: BoxFit.cover,
+                                                        errorBuilder: (_, __, ___) => Container(
+                                                          height: 100,
+                                                          color: Colors.grey[200],
+                                                          child: const Icon(
+                                                            Icons.image_not_supported,
+                                                            color: Colors.grey,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      padding: const EdgeInsets.all(8),
+                                                      child: const Row(
+                                                        mainAxisAlignment: MainAxisAlignment.center,
+                                                        children: [
+                                                          Icon(
+                                                            Icons.location_on,
+                                                            size: 14,
+                                                            color: Colors.red,
+                                                          ),
+                                                          SizedBox(width: 4),
+                                                          Text(
+                                                            'Dropoff',
+                                                            style: TextStyle(
+                                                              fontSize: 11,
+                                                              fontWeight: FontWeight.w600,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+          ),
+        ],
+      ),
+                              );
+                            return const SizedBox.shrink();
+                          },
+                        ),
+                      ],
+                      
+                      // ETA info if rider is on the way
                     if (_riderLocation != null && _isPaymentApproved)
                       Padding(
-                        padding: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.only(top: 12),
                         child: Row(
                           children: [
                             const Icon(Icons.motorcycle, size: 16, color: Colors.blue),
@@ -2467,7 +2735,6 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                                     'Rider is on the way',
                                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                                   ),
-                                  
                                   Padding(
                                     padding: const EdgeInsets.only(top: 4),
                                     child: Row(
@@ -2499,53 +2766,16 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                           ],
                         ),
                       ),
-                    
-                    if (_canSubmitPayment())
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: _showPaymentDialog,
-                            icon: const Icon(Icons.payment, size: 20),
-                            label: const Text('Submit Payment'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    
-                    if (_canMarkAsCompleted())
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: _markAsCompleted,
-                            icon: const Icon(Icons.check_circle, size: 20),
-                            label: const Text('Mark as Completed'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.success,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+                    ],
+                  ),
+                );
+              },
+                  );
+                }
+                return const SizedBox.shrink();
+              },
             ),
-          ),
+          ],
         ],
       ),
     );

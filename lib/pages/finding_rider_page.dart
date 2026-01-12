@@ -198,23 +198,23 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 					_startPollingForAcceptance(match.riderId, isPadala);
 				} else {
 					// For food deliveries, keep the old behavior (direct assignment)
-					await _supabaseService.assignRiderToDelivery(
-						deliveryId: widget.orderId,
-						riderId: match.riderId,
-					);
-					
-					if (!mounted) return;
-					setState(() {
-						_statusText = 'Rider assigned! Starting tracking...';
-					});
-					
-					await Future<void>.delayed(const Duration(milliseconds: 400));
-					if (!mounted) return;
-					
+				await _supabaseService.assignRiderToDelivery(
+					deliveryId: widget.orderId,
+					riderId: match.riderId,
+				);
+				
+				if (!mounted) return;
+				setState(() {
+					_statusText = 'Rider assigned! Starting tracking...';
+				});
+				
+				await Future<void>.delayed(const Duration(milliseconds: 400));
+				if (!mounted) return;
+				
 					Navigator.of(context).pushReplacementNamed(
-						OrderTrackingPage.routeName,
-						arguments: widget.orderId,
-					);
+					OrderTrackingPage.routeName,
+					arguments: widget.orderId,
+				);
 				}
 			} catch (e) {
 				if (!mounted) return;

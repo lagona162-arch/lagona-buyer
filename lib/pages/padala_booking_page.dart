@@ -815,7 +815,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                         icon: const Icon(Icons.edit_location),
                         onPressed: () => _openMapModal(true),
                         tooltip: 'Change location',
-                      ),
+                ),
                 hintText: _isLoadingPickupLocation
                     ? 'Fetching your location...'
                     : null,
@@ -893,8 +893,8 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                                 CameraUpdate.newLatLngZoom(_pickupLatLng!, 16),
                               );
                             }
-                          },
-                        ),
+                        },
+                      ),
                       // Zoom controls - positioned at bottom right to avoid overlap
                       if (!_isLoadingPickupLocation && _pickupMapController != null)
                         Positioned(
@@ -1301,8 +1301,8 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                     ),
                   ],
                 ),
-              ),
             ),
+          ),
           
           const SizedBox(height: 16),
           

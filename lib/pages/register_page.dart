@@ -111,7 +111,7 @@ class _RegisterPageState extends State<RegisterPage> {
       final firstName = firstNameController.text.trim();
       final lastName = lastNameController.text.trim();
       final middleInitial = middleInitialController.text.trim().isNotEmpty 
-          ? middleInitialController.text.trim().toUpperCase() 
+            ? middleInitialController.text.trim().toUpperCase() 
           : null;
       
       debugPrint('✅ Registration data collected - will create auth account after customer registration');

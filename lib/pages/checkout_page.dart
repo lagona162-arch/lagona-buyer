@@ -746,8 +746,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 IconButton(
-                                  icon: const Icon(Icons.my_location),
-                                  onPressed: _getCurrentLocation,
+                              icon: const Icon(Icons.my_location),
+                              onPressed: _getCurrentLocation,
                                   tooltip: 'Use current location',
                                 ),
                                 IconButton(
@@ -823,7 +823,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(color: AppColors.border, width: 2),
-                            ),
+                          ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(12),
                               child: Stack(
@@ -949,7 +949,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                           ),
                           maxLines: 3,
                           maxLength: 200,
-                        ),
+                          ),
                         
                         const SizedBox(height: 24),
                         

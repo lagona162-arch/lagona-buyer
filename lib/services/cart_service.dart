@@ -71,7 +71,7 @@ class CartService extends ChangeNotifier {
             priceCents: existingAddon.priceCents,
             quantity: existingAddon.quantity + addon.quantity,
           );
-        } else {
+    } else {
           // Add new addon
           mergedAddons[addon.addonId] = addon;
         }

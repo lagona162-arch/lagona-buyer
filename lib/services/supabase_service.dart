@@ -473,7 +473,7 @@ class SupabaseService {
           if (imageUrl != null && imageUrl is String && imageUrl.isNotEmpty) {
             productData['photo_url'] = _convertToPublicUrl(imageUrl, 'product-images');
           } else {
-            productData['photo_url'] = null;
+          productData['photo_url'] = null;
           }
           
           return MenuItem.fromMap(productData);
@@ -627,7 +627,7 @@ class SupabaseService {
     final locationAtPattern = RegExp(r'^Location at \d+\.?\d*,\s*\d+\.?\d*$', caseSensitive: false);
     return coordPattern.hasMatch(trimmed) || locationAtPattern.hasMatch(trimmed);
   }
-  
+
   
   Future<String> createOrder({
     required String customerId,
@@ -717,7 +717,7 @@ class SupabaseService {
 
       
       if (_looksLikeCoordinates(dropoffAddress) && customerLat != null && customerLng != null) {
-        dropoffAddress = 'Location at ${customerLat.toStringAsFixed(6)}, ${customerLng.toStringAsFixed(6)}';
+          dropoffAddress = 'Location at ${customerLat.toStringAsFixed(6)}, ${customerLng.toStringAsFixed(6)}';
       } else if ((dropoffAddress == null || dropoffAddress.isEmpty) &&
           customerLat != null && customerLng != null) {
         dropoffAddress = 'Location at ${customerLat.toStringAsFixed(6)}, ${customerLng.toStringAsFixed(6)}';
@@ -795,7 +795,7 @@ class SupabaseService {
         final item = items[i];
         final priceCents = item['price_cents'] as int;
         final quantity = item['quantity'] as int;
-        final subtotal = priceCents * quantity;
+        final subtotal = priceCents * quantity; 
         final addons = item['addons'] as List<dynamic>? ?? [];
         final productName = item['name'] as String? ?? 'Unknown Product';
 
@@ -808,9 +808,9 @@ class SupabaseService {
         // Insert delivery item and get its ID
         final deliveryItemData = {
           'delivery_id': deliveryId,
-          'product_id': item['menu_item_id'],
+          'product_id': item['menu_item_id'], 
           'quantity': quantity,
-          'subtotal': subtotal / 100.0,
+          'subtotal': subtotal / 100.0, 
         };
         
         debugPrint('   - Inserting into delivery_items: $deliveryItemData');
@@ -851,8 +851,8 @@ class SupabaseService {
               'price': addonPriceCents / 100.0,
               'quantity': addonQuantity,
               'subtotal': addonSubtotal / 100.0,
-            };
-          }).toList();
+        };
+      }).toList();
 
           debugPrint('   - Inserting ${deliveryItemAddons.length} add-on(s) into delivery_item_addons');
           await _client.from('delivery_item_addons').insert(deliveryItemAddons);
@@ -1234,18 +1234,14 @@ class SupabaseService {
 
       final currentStatus = delivery['status']?.toString().toLowerCase() ?? '';
       
-      // Check delivery type to determine valid status
-      final deliveryType = delivery['type']?.toString().toLowerCase() ?? '';
-      
-      // For Padala (parcel) deliveries, status should be 'dropoff'
-      // For food deliveries, status should be 'delivered'
-      final isValidStatus = deliveryType == 'parcel' 
-          ? currentStatus == 'dropoff' || currentStatus == 'drop_off'
-          : currentStatus == 'delivered';
+      // Accept both 'dropoff' and 'delivered' as valid statuses for completion
+      // Flow: delivery/drop-off > completed
+      final isValidStatus = currentStatus == 'dropoff' || 
+                           currentStatus == 'drop_off' ||
+                           currentStatus == 'delivered';
       
       if (!isValidStatus) {
-        final expectedStatus = deliveryType == 'parcel' ? 'dropoff' : 'delivered';
-        throw Exception('Delivery must be ${expectedStatus} before it can be marked as completed. Current status: $currentStatus');
+        throw Exception('Delivery must be delivered or dropped off before it can be marked as completed. Current status: $currentStatus');
       }
 
       

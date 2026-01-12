@@ -399,7 +399,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 		try {
 			if (widget.isEditMode) {
 				// For edit mode, get user ID from current authenticated user
-				final user = Supabase.instance.client.auth.currentUser;
+		final user = Supabase.instance.client.auth.currentUser;
 				if (user == null) {
 					debugPrint('No authenticated user found in edit mode');
 					if (mounted) {
@@ -422,7 +422,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 					address: address,
 					latitude: selectedLatLng!.latitude,
 					longitude: selectedLatLng!.longitude,
-					phone: phone,
+					phone: phone, 
 				);
 				debugPrint('✅ Customer address updated successfully');
 				
@@ -484,7 +484,7 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 						newUserId = response.user?.id;
 						if (newUserId == null) {
 							throw Exception('Failed to create user account');
-						}
+				}
 						
 						debugPrint('✅ Auth account created with user ID: $newUserId');
 					} catch (signUpError) {
@@ -557,11 +557,11 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 				ScaffoldMessenger.of(context).showSnackBar(
 					SnackBar(
 						content: Text('Registration failed: $errorMessage'),
-						backgroundColor: Colors.red,
+							backgroundColor: Colors.red,
 						duration: const Duration(seconds: 5),
-					),
-				);
-			}
+						),
+					);
+				}
 		} finally {
 			if (mounted) {
 				setState(() => _isSubmitting = false);
@@ -618,8 +618,8 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 											return 'Please select a location on the map';
 										}
 										return null;
-									},
-								),
+											},
+									),
 								],
 							),
 						),
@@ -628,13 +628,13 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 						child: Stack(
 							children: [
 								GoogleMap(
-									initialCameraPosition: CameraPosition(
-										target: selectedLatLng ?? const LatLng(14.5995, 120.9842),
-										zoom: selectedLatLng != null ? 17 : 12,
-									),
+							initialCameraPosition: CameraPosition(
+								target: selectedLatLng ?? const LatLng(14.5995, 120.9842),
+								zoom: selectedLatLng != null ? 17 : 12,
+							),
 									onMapCreated: (GoogleMapController controller) {
-										mapController = controller;
-										if (selectedLatLng != null) {
+								mapController = controller;
+								if (selectedLatLng != null) {
 											// Update camera after map is created
 											WidgetsBinding.instance.addPostFrameCallback((_) async {
 												if (mounted && mapController != null && selectedLatLng != null) {
@@ -643,14 +643,14 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 													);
 												}
 											});
-										}
-									},
+								}
+							},
 									markers: selectedLatLng != null
 										? {
-											Marker(
-												markerId: const MarkerId('selected'),
-												position: selectedLatLng!,
-												draggable: true,
+									Marker(
+										markerId: const MarkerId('selected'),
+										position: selectedLatLng!,
+										draggable: true,
 												icon: BitmapDescriptor.defaultMarkerWithHue(
 													BitmapDescriptor.hueRed,
 												),
@@ -667,8 +667,8 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 													// Set coordinates as fallback address immediately
 													final coords = '${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}';
 													
-													setState(() {
-														selectedLatLng = pos;
+											setState(() {
+												selectedLatLng = pos;
 														selectedAddress = coords; // Set fallback immediately
 														searchController.text = coords;
 													});
@@ -685,9 +685,9 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 													}
 													
 													// Then reverse geocode (non-blocking, will update address when done)
-													_reverseGeocode(pos);
-												},
-											),
+											_reverseGeocode(pos);
+										},
+									),
 										}
 										: {},
 									onTap: (pos) async {
@@ -704,8 +704,8 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 										final coords = '${pos.latitude.toStringAsFixed(6)}, ${pos.longitude.toStringAsFixed(6)}';
 										
 										// Update state with new location - always works, no delay
-										setState(() {
-											selectedLatLng = pos;
+								setState(() {
+									selectedLatLng = pos;
 											selectedAddress = coords; // Set fallback immediately
 											searchController.text = coords;
 										});
@@ -722,13 +722,13 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 										}
 										
 										// Then reverse geocode (non-blocking, will update address when done)
-										_reverseGeocode(pos);
-									},
-									myLocationButtonEnabled: true,
+								_reverseGeocode(pos);
+							},
+							myLocationButtonEnabled: true,
 									myLocationEnabled: true,
-									mapType: MapType.normal,
-									zoomControlsEnabled: true,
-									compassEnabled: true,
+							mapType: MapType.normal,
+							zoomControlsEnabled: true,
+							compassEnabled: true,
 									zoomGesturesEnabled: true,
 									scrollGesturesEnabled: true,
 									rotateGesturesEnabled: true,
