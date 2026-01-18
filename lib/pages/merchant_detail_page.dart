@@ -1069,9 +1069,8 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
   }
 
   void _showAddToCartDialog(MenuItem item) {
-    final currentQuantity = _cartService.getItemQuantity(item.id);
-    
-    
+    // Note: we intentionally do NOT prefill the quantity selector from cart quantity.
+    // The modal should always start fresh (quantity=1) when adding from the menu.
     if (_cartService.isDifferentMerchant(item.merchantId)) {
       showDialog(
         context: context,
@@ -1106,7 +1105,9 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
 
   void _showQuantitySelector(MenuItem item) {
     final currentQuantity = _cartService.getItemQuantity(item.id);
-    int quantity = currentQuantity > 0 ? currentQuantity : 1;
+    // Always start at 1 when opening from the menu (avoid "sticky" quantity).
+    // CartService.addItem() already merges by adding to existing quantity.
+    int quantity = 1;
     final Map<String, int> selectedAddons = {};
     
     // Initialize required addons with quantity 1
@@ -1510,7 +1511,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                         const SizedBox(width: 8),
                         Text(
                           currentQuantity > 0
-                                  ? 'Update Cart - ₱${totalPrice.toStringAsFixed(2)}'
+                                  ? 'Add More - ₱${totalPrice.toStringAsFixed(2)}'
                                   : 'Add to Cart - ₱${totalPrice.toStringAsFixed(2)}',
                           style: const TextStyle(
                             color: Colors.white,

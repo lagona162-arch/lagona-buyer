@@ -236,7 +236,7 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
       case PadalaStatus.inTransit:
         return 'Package is on the way to recipient';
       case PadalaStatus.dropoff:
-        return 'Package has been dropped off';
+        return 'To Complete';
       case PadalaStatus.completed:
         return 'Delivery completed successfully!';
       case PadalaStatus.cancelled:
@@ -621,8 +621,11 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
               ),
             );
             
-            // Reload to update status
-            _loadPadala();
+            // Redirect to dashboard after completion
+            Navigator.of(context).pushNamedAndRemoveUntil(
+              '/service-selection',
+              (route) => false,
+            );
           }
         }
       } catch (e) {

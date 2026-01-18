@@ -136,7 +136,7 @@ class PadalaDelivery {
       case PadalaStatus.inTransit:
         return 'In Transit';
       case PadalaStatus.dropoff:
-        return 'Dropped Off';
+        return 'To Complete';
       case PadalaStatus.completed:
         return 'Completed';
       case PadalaStatus.cancelled:

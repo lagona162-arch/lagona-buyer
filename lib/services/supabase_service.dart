@@ -1428,6 +1428,11 @@ class SupabaseService {
     required String recipientPhone,
     String? recipientNotes,
     String? packageDescription,
+    String? itemDetails,
+    double? itemWeight,
+    int? itemQuantity,
+    bool? needsThermalBag,
+    bool? needsAbono,
     double? deliveryFee,
     String? parcelPhotoUrl,
   }) async {
@@ -1438,7 +1443,7 @@ class SupabaseService {
       debugPrint('Dropoff: $dropoffAddress');
 
       // Create Padala details object to store in delivery_notes as JSON
-      final padalaDetails = {
+      final padalaDetails = <String, dynamic>{
         'sender_name': senderName,
         'sender_phone': senderPhone,
         'recipient_name': recipientName,
@@ -1455,6 +1460,26 @@ class SupabaseService {
 
       if (packageDescription != null && packageDescription.trim().isNotEmpty) {
         padalaDetails['package_description'] = packageDescription.trim();
+      }
+
+      if (itemDetails != null && itemDetails.trim().isNotEmpty) {
+        padalaDetails['item_details'] = itemDetails.trim();
+      }
+
+      if (itemWeight != null && itemWeight > 0) {
+        padalaDetails['item_weight'] = itemWeight;
+      }
+
+      if (itemQuantity != null && itemQuantity > 0) {
+        padalaDetails['item_quantity'] = itemQuantity;
+      }
+
+      if (needsThermalBag == true) {
+        padalaDetails['needs_thermal_bag'] = true;
+      }
+
+      if (needsAbono == true) {
+        padalaDetails['needs_abono'] = true;
       }
 
       if (parcelPhotoUrl != null && parcelPhotoUrl.trim().isNotEmpty) {

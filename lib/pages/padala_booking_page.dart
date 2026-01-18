@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
@@ -35,7 +36,6 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
   String? _parcelPhotoUrl;
   
   // Pickup (Sender) fields
-  final TextEditingController _pickupSearchController = TextEditingController();
   final TextEditingController _senderNameController = TextEditingController();
   final TextEditingController _senderPhoneController = TextEditingController();
   final TextEditingController _senderNotesController = TextEditingController();
@@ -54,11 +54,15 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
   GoogleMapController? _dropoffMapController;
   
   // Package details
-  final TextEditingController _packageDescriptionController = TextEditingController();
+  final TextEditingController _itemDetailsController = TextEditingController();
+  final TextEditingController _itemWeightController = TextEditingController();
+  final TextEditingController _itemQuantityController = TextEditingController();
+  bool _needsThermalBag = false;
+  bool _needsAbono = false;
   
   // UI state
   bool _isLoading = false;
-  int _activeStep = 0; // 0: Photo, 1: Pickup, 2: Dropoff, 3: Confirmation
+  int _activeStep = 0; // 0: Pickup & Photo, 1: Dropoff, 2: Confirmation
   double? _deliveryFee;
   double? _distance;
   
@@ -99,9 +103,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                   label: 'View',
                   textColor: Colors.white,
                   onPressed: () {
-                    Navigator.of(context).pushReplacementNamed(
-                      '/service-selection',
-                    );
+                    Navigator.of(context).pushReplacementNamed('/service-selection');
                   },
                 ),
               ),
@@ -116,14 +118,15 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
   
   @override
   void dispose() {
-    _pickupSearchController.dispose();
     _senderNameController.dispose();
     _senderPhoneController.dispose();
     _senderNotesController.dispose();
     _recipientNameController.dispose();
     _recipientPhoneController.dispose();
     _recipientNotesController.dispose();
-    _packageDescriptionController.dispose();
+    _itemDetailsController.dispose();
+    _itemWeightController.dispose();
+    _itemQuantityController.dispose();
     _pickupMapController?.dispose();
     _dropoffMapController?.dispose();
     super.dispose();
@@ -154,20 +157,12 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
   Future<void> _initializePickupLocation() async {
     if (_pickupLocationInitialized) return;
     
-    if (mounted) {
-      setState(() {
-        _isLoadingPickupLocation = true;
-      });
-    }
+    setState(() => _isLoadingPickupLocation = true);
     
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        if (mounted) {
-          setState(() {
-            _isLoadingPickupLocation = false;
-          });
-        }
+        setState(() => _isLoadingPickupLocation = false);
         return;
       }
       
@@ -175,21 +170,13 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          if (mounted) {
-            setState(() {
-              _isLoadingPickupLocation = false;
-            });
-          }
+          setState(() => _isLoadingPickupLocation = false);
           return;
         }
       }
       
       if (permission == LocationPermission.deniedForever) {
-        if (mounted) {
-          setState(() {
-            _isLoadingPickupLocation = false;
-          });
-        }
+        setState(() => _isLoadingPickupLocation = false);
         return;
       }
       
@@ -198,8 +185,28 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
       );
       
       final latLng = LatLng(position.latitude, position.longitude);
+      final address = await _reverseGeocode(latLng);
       
-      // Reverse geocode to get address
+      if (mounted) {
+        setState(() {
+          _pickupLatLng = latLng;
+          _pickupAddress = address;
+          _pickupLocationInitialized = true;
+          _isLoadingPickupLocation = false;
+        });
+        
+        _pickupMapController?.animateCamera(
+          CameraUpdate.newLatLngZoom(latLng, 16),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error initializing pickup location: $e');
+      if (mounted) setState(() => _isLoadingPickupLocation = false);
+    }
+  }
+  
+  Future<String> _reverseGeocode(LatLng latLng) async {
+    try {
       final uri = Uri.https(
         'maps.googleapis.com',
         '/maps/api/geocode/json',
@@ -213,40 +220,14 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
       if (res.statusCode == 200) {
         final data = json.decode(res.body) as Map<String, dynamic>;
         final results = (data['results'] as List?) ?? [];
-        final address = results.isNotEmpty
-            ? results.first['formatted_address'] as String?
+        return results.isNotEmpty
+            ? results.first['formatted_address'] as String
             : '${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)}';
-        
-        if (mounted) {
-        setState(() {
-            _pickupLatLng = latLng;
-            _pickupAddress = address ?? '${latLng.latitude}, ${latLng.longitude}';
-            _pickupSearchController.text = _pickupAddress!;
-            _pickupLocationInitialized = true;
-            _isLoadingPickupLocation = false;
-          });
-          
-          if (_pickupMapController != null) {
-            await _pickupMapController!.animateCamera(
-              CameraUpdate.newLatLngZoom(latLng, 16),
-            );
-          }
-        }
-          } else {
-        if (mounted) {
-          setState(() {
-            _isLoadingPickupLocation = false;
-          });
-        }
       }
     } catch (e) {
-      debugPrint('Error initializing pickup location: $e');
-      if (mounted) {
-        setState(() {
-          _isLoadingPickupLocation = false;
-        });
-      }
+      debugPrint('Error reverse geocoding: $e');
     }
+    return '${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)}';
   }
   
   String? _validatePhoneNumber(String? value) {
@@ -255,14 +236,10 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
     }
     final cleaned = value.trim().replaceAll(RegExp(r'[\s\-\(\)\+]'), '');
     final phPattern = RegExp(r'^09\d{9}$');
-    if (phPattern.hasMatch(cleaned)) {
-      return null;
-    }
+    if (phPattern.hasMatch(cleaned)) return null;
     if (cleaned.startsWith('639') && cleaned.length == 12) {
       final converted = '0${cleaned.substring(2)}';
-      if (phPattern.hasMatch(converted)) {
-        return null;
-      }
+      if (phPattern.hasMatch(converted)) return null;
     }
     return 'Invalid phone number. Must be 11 digits starting with 09';
   }
@@ -341,9 +318,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                 child: _MapSelector(
                   initialPosition: initialPosition ?? const LatLng(14.5995, 120.9842),
                   isPickup: isPickup,
-                  onLocationSelected: (latLng) {
-                    Navigator.of(context).pop(latLng);
-                  },
+                  onLocationSelected: (latLng) => Navigator.of(context).pop(latLng),
                 ),
               ),
             ],
@@ -352,13 +327,10 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
       ),
     );
     
-    if (result != null) {
-      await _updateLocationFromMap(result, isPickup);
-    }
+    if (result != null) await _updateLocationFromMap(result, isPickup);
   }
 
   Future<void> _updateLocationFromMap(LatLng latLng, bool isPickup) async {
-    if (mounted) {
     setState(() {
       if (isPickup) {
         _pickupLatLng = latLng;
@@ -366,81 +338,23 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
         _dropoffLatLng = latLng;
       }
     });
-    }
 
-    try {
-      final uri = Uri.https(
-        'maps.googleapis.com',
-        '/maps/api/geocode/json',
-        {
-          'latlng': '${latLng.latitude},${latLng.longitude}',
-          'key': MapsConfig.apiKey,
-        },
-      );
-
-      final res = await http.get(uri);
-      if (res.statusCode == 200) {
-        final data = json.decode(res.body) as Map<String, dynamic>;
-        final results = (data['results'] as List?) ?? [];
-        final address = results.isNotEmpty
-            ? results.first['formatted_address'] as String?
-            : '${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)}';
-
-        if (mounted) {
-          setState(() {
-            if (isPickup) {
-              _pickupAddress = address ?? '${latLng.latitude}, ${latLng.longitude}';
-              _pickupSearchController.text = _pickupAddress!;
-            } else {
-              _dropoffAddress = address ?? '${latLng.latitude}, ${latLng.longitude}';
-            }
-          });
-
-          _calculateDeliveryFee();
-
-          final mapController = isPickup ? _pickupMapController : _dropoffMapController;
-          if (mapController != null) {
-            await mapController.animateCamera(
-              CameraUpdate.newLatLngZoom(latLng, 16),
-            );
-          } else {
-            // If map controller is not ready yet, wait a bit and try again
-            await Future.delayed(const Duration(milliseconds: 300));
-            final retryController = isPickup ? _pickupMapController : _dropoffMapController;
-            if (retryController != null) {
-              await retryController.animateCamera(
-              CameraUpdate.newLatLngZoom(latLng, 16),
-            );
-            }
-          }
-          
-          // Update map preview to show the new location
-          if (mounted && !isPickup) {
-            // For dropoff, ensure the preview map updates
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted && _dropoffMapController != null && _dropoffLatLng != null) {
-                _dropoffMapController!.animateCamera(
-                  CameraUpdate.newLatLngZoom(_dropoffLatLng!, 16),
-                );
-              }
-            });
-          }
+    final address = await _reverseGeocode(latLng);
+    
+    if (mounted) {
+      setState(() {
+        if (isPickup) {
+          _pickupAddress = address;
+        } else {
+          _dropoffAddress = address;
         }
-      }
-    } catch (e) {
-      debugPrint('Error reverse geocoding: $e');
-      if (mounted) {
-        final coords = '${latLng.latitude.toStringAsFixed(6)}, ${latLng.longitude.toStringAsFixed(6)}';
-        setState(() {
-          if (isPickup) {
-            _pickupAddress = coords;
-            _pickupSearchController.text = coords;
-          } else {
-            _dropoffAddress = coords;
-          }
-        });
-        _calculateDeliveryFee();
-      }
+      });
+
+      _calculateDeliveryFee();
+
+      final mapController = isPickup ? _pickupMapController : _dropoffMapController;
+      await Future.delayed(const Duration(milliseconds: 100));
+      mapController?.animateCamera(CameraUpdate.newLatLngZoom(latLng, 16));
     }
   }
   
@@ -460,16 +374,12 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
       _dropoffLatLng!.longitude,
     );
 
-    debugPrint('📍 Padala delivery distance calculated: ${distance.toStringAsFixed(2)} km');
-
     double fee = 55.0; 
     if (distance > 1.0) {
-      final additionalKm = distance - 1.0; // Use actual decimal distance, not rounded up
-      fee += additionalKm * 10.0;
-      debugPrint('💰 Additional km: ${additionalKm.toStringAsFixed(2)}, Fee: ₱${(additionalKm * 10.0).toStringAsFixed(2)}');
+      fee += (distance - 1.0) * 10.0;
     }
-
-    debugPrint('💰 Total Padala delivery fee: ₱${fee.toStringAsFixed(2)}');
+    
+    if (_needsAbono) fee += 55.0;
 
     setState(() {
       _distance = distance;
@@ -488,16 +398,11 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
       
       final fileBytes = await _parcelPhoto!.readAsBytes();
       final fileName = '${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final filePath = fileName;
-      
-      debugPrint('📤 Uploading parcel photo to parcel-photos bucket...');
-      debugPrint('   File: $fileName');
-      debugPrint('   Size: ${fileBytes.length} bytes');
       
       await Supabase.instance.client.storage
           .from('parcel-photos')
           .uploadBinary(
-            filePath,
+            fileName,
             fileBytes,
             fileOptions: const FileOptions(
               contentType: 'image/jpeg',
@@ -507,10 +412,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
       
       final imageUrl = Supabase.instance.client.storage
           .from('parcel-photos')
-          .getPublicUrl(filePath);
-      
-      debugPrint('✅ Parcel photo uploaded successfully');
-      debugPrint('✅ Photo URL: $imageUrl');
+          .getPublicUrl(fileName);
       
       if (mounted) {
         setState(() {
@@ -520,29 +422,13 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
       }
     } catch (e) {
       debugPrint('Error uploading parcel photo: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error uploading photo: $e'),
-            backgroundColor: AppColors.error,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-        // Allow booking to proceed even if photo upload fails
-        // The photo can be uploaded later or the rider will take photos
-      }
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
   
   Future<void> _bookPadala() async {
-    // Validate form if it's available (only for pickup and dropoff steps)
-    if (_formKey.currentState != null && !_formKey.currentState!.validate()) {
-      return;
-    }
+    if (_formKey.currentState != null && !_formKey.currentState!.validate()) return;
     
     if (_parcelPhoto == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -551,15 +437,14 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
       return;
     }
     
-    if (_pickupLatLng == null || _pickupAddress == null || _pickupAddress!.isEmpty) {
+    if (_pickupLatLng == null || _pickupAddress == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a pickup location')),
       );
       return;
     }
     
-    // Validate dropoff address is required
-    if (_dropoffLatLng == null || _dropoffAddress == null || _dropoffAddress!.isEmpty) {
+    if (_dropoffLatLng == null || _dropoffAddress == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Dropoff address is required. Please select a dropoff location on the map.'),
@@ -567,8 +452,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
           duration: Duration(seconds: 3),
         ),
       );
-      // Go back to dropoff step
-      setState(() => _activeStep = 2);
+      setState(() => _activeStep = 1);
       return;
     }
     
@@ -576,23 +460,16 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
     
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) {
-        throw Exception('User not authenticated');
-      }
+      if (user == null) throw Exception('User not authenticated');
 
-      // Upload parcel photo if not already uploaded
-      // If upload fails, proceed anyway (rider will take photos)
       if (!_parcelPhotoUploaded && _parcelPhoto != null) {
         try {
           await _uploadParcelPhoto();
         } catch (e) {
           debugPrint('⚠️ Photo upload failed, but proceeding with booking: $e');
-          // Continue with booking even if photo upload fails
-          // The rider will take photos during pickup
         }
       }
 
-      // Check for existing active Padala deliveries
       final existingPadala = await _supabaseService.getCustomerPadalaDeliveries(
         customerId: user.id,
       );
@@ -627,7 +504,6 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
         return;
       }
       
-      // Create Padala booking
       final padalaId = await _supabaseService.createPadalaBooking(
         customerId: user.id,
         pickupAddress: _pickupAddress!,
@@ -646,23 +522,25 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
         recipientNotes: _recipientNotesController.text.trim().isEmpty 
             ? null 
             : _recipientNotesController.text.trim(),
-        packageDescription: _packageDescriptionController.text.trim().isEmpty 
-            ? null 
-            : _packageDescriptionController.text.trim(),
+        packageDescription: null,
+        itemDetails: _itemDetailsController.text.trim(),
+        itemWeight: double.tryParse(_itemWeightController.text.trim()) ?? 0.0,
+        itemQuantity: int.tryParse(_itemQuantityController.text.trim()) ?? 1,
+        needsThermalBag: _needsThermalBag,
+        needsAbono: _needsAbono,
         deliveryFee: _deliveryFee,
         parcelPhotoUrl: _parcelPhotoUrl,
       );
       
       if (!mounted) return;
       
-        // Navigate to finding rider page
-        final result = await Navigator.of(context).pushReplacementNamed(
-          FindingRiderPage.routeName,
-          arguments: padalaId,
-        );
+      final result = await Navigator.of(context).pushReplacementNamed(
+        FindingRiderPage.routeName,
+        arguments: padalaId,
+      );
       
-        if (result == true && mounted) {
-          Navigator.of(context).pop(true);
+      if (result == true && mounted) {
+        Navigator.of(context).pop(true);
       }
     } catch (e) {
       if (mounted) {
@@ -677,93 +555,8 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
     }
   }
   
-  Widget _buildPhotoStep() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            'Take Photo of Parcel',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Please take a clear photo of the parcel you want to deliver',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 24),
-          
-          GestureDetector(
-            onTap: _takeParcelPhoto,
-            child: Container(
-              height: 300,
-              decoration: BoxDecoration(
-                color: AppColors.border.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.border,
-                  width: 2,
-                  style: BorderStyle.solid,
-                ),
-              ),
-              child: _parcelPhoto != null
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.file(
-                        _parcelPhoto!,
-                        fit: BoxFit.cover,
-                      ),
-                    )
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.camera_alt,
-                          size: 64,
-                          color: AppColors.textSecondary,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Tap to take photo',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-            ),
-          ),
-          
-          if (_parcelPhoto != null) ...[
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _takeParcelPhoto,
-                    icon: const Icon(Icons.camera_alt),
-                    label: const Text('Retake Photo'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-  
-  Widget _buildPickupStep() {
-    // Initialize pickup location when step is shown
-    if (!_pickupLocationInitialized && _activeStep == 1) {
+  Widget _buildPickupAndPhotoStep() {
+    if (!_pickupLocationInitialized && _activeStep == 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _initializePickupLocation();
       });
@@ -777,57 +570,82 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Pickup Location (Sender)',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+              'Parcel Photo & Pickup Details',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
-              'Your current location is automatically detected, but you can change it',
+              'Make sure that your parcel fits on a motorcycle',
               style: TextStyle(
                 fontSize: 14,
                 color: AppColors.textSecondary,
+                fontStyle: FontStyle.italic,
               ),
             ),
             const SizedBox(height: 16),
             
-            // Address display
-            TextFormField(
-              controller: _pickupSearchController,
-              readOnly: true,
-              decoration: InputDecoration(
-                labelText: 'Pickup Address',
-                prefixIcon: _isLoadingPickupLocation
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: Padding(
-                          padding: EdgeInsets.all(12.0),
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      )
-                    : const Icon(Icons.location_on),
-                suffixIcon: _isLoadingPickupLocation
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.edit_location),
-                        onPressed: () => _openMapModal(true),
-                        tooltip: 'Change location',
+            // Parcel Photo Section
+            GestureDetector(
+              onTap: _takeParcelPhoto,
+              child: Container(
+                height: 200,
+                decoration: BoxDecoration(
+                  color: AppColors.border.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border, width: 2),
                 ),
-                hintText: _isLoadingPickupLocation
-                    ? 'Fetching your location...'
-                    : null,
+                child: _parcelPhoto != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.file(_parcelPhoto!, fit: BoxFit.cover),
+                      )
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.camera_alt, size: 64, color: AppColors.textSecondary),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Tap to take photo of parcel',
+                            style: TextStyle(fontSize: 16, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
               ),
-              validator: (value) {
-                if (_pickupAddress == null) {
-                  return 'Please select a pickup address';
-                }
-                return null;
-              },
             ),
             
+            if (_parcelPhoto != null) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _takeParcelPhoto,
+                icon: const Icon(Icons.camera_alt),
+                label: const Text('Retake Photo'),
+              ),
+            ],
+            
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 16),
+            
+            // Pickup Location Section
+            const Text(
+              'Pickup Location',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your current location is automatically detected',
+              style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            
+            _buildLocationSelector(
+              label: 'Pickup Address',
+              address: _pickupAddress,
+              onTap: () => _openMapModal(true),
+              isLoading: _isLoadingPickupLocation,
+              accentColor: Colors.green.shade600,
+              icon: Icons.location_on,
+            ),
             const SizedBox(height: 16),
             
             // Map Preview
@@ -841,10 +659,8 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Stack(
-                    children: [
-                      if (_isLoadingPickupLocation)
-                        Container(
+                  child: _isLoadingPickupLocation
+                      ? Container(
                           color: Colors.grey[200],
                           child: const Center(
                             child: Column(
@@ -852,166 +668,75 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                               children: [
                                 CircularProgressIndicator(),
                                 SizedBox(height: 16),
-                                Text(
-                                  'Loading your location...',
-                                  style: TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 14,
-                                  ),
-                                ),
+                                Text('Loading your location...', style: TextStyle(color: Colors.grey)),
                               ],
                             ),
                           ),
                         )
-                      else
-                      GoogleMap(
-                        initialCameraPosition: CameraPosition(
-                          target: _pickupLatLng ?? const LatLng(14.5995, 120.9842),
-                          zoom: _pickupLatLng != null ? 15 : 12,
-                        ),
-                        markers: _pickupLatLng != null
-                            ? {
-                                Marker(
-                                  markerId: const MarkerId('pickup'),
-                                  position: _pickupLatLng!,
-                                  icon: BitmapDescriptor.defaultMarkerWithHue(
-                                    BitmapDescriptor.hueGreen,
-                                  ),
-                                ),
-                              }
-                            : {},
-                        zoomGesturesEnabled: false,
-                        scrollGesturesEnabled: false,
-                        rotateGesturesEnabled: false,
-                        tiltGesturesEnabled: false,
-                        myLocationButtonEnabled: false,
-                        zoomControlsEnabled: false,
-                        onMapCreated: (controller) {
-                          _pickupMapController = controller;
-                            if (_pickupLatLng != null) {
-                              controller.animateCamera(
-                                CameraUpdate.newLatLngZoom(_pickupLatLng!, 16),
-                              );
-                            }
-                        },
-                      ),
-                      // Zoom controls - positioned at bottom right to avoid overlap
-                      if (!_isLoadingPickupLocation && _pickupMapController != null)
-                        Positioned(
-                          right: 12,
-                          bottom: 12,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Material(
-                                color: Colors.white,
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(8),
-                                  topRight: Radius.circular(8),
-                                ),
-                                elevation: 4,
-                                shadowColor: Colors.black26,
-                                child: InkWell(
-                                  onTap: () {
-                                    _pickupMapController!.animateCamera(
-                                      CameraUpdate.zoomIn(),
-                                    );
-                                  },
-                                  borderRadius: const BorderRadius.only(
-                                    topLeft: Radius.circular(8),
-                                    topRight: Radius.circular(8),
-                                  ),
-                                  child: Container(
-                                    width: 44,
-                                    height: 44,
-                                    decoration: BoxDecoration(
-                                      borderRadius: const BorderRadius.only(
-                                        topLeft: Radius.circular(8),
-                                        topRight: Radius.circular(8),
+                      : Stack(
+                          children: [
+                            GoogleMap(
+                              initialCameraPosition: CameraPosition(
+                                target: _pickupLatLng ?? const LatLng(14.5995, 120.9842),
+                                zoom: _pickupLatLng != null ? 15 : 12,
+                              ),
+                              markers: _pickupLatLng != null
+                                  ? {
+                                      Marker(
+                                        markerId: const MarkerId('pickup'),
+                                        position: _pickupLatLng!,
+                                        icon: BitmapDescriptor.defaultMarkerWithHue(
+                                          BitmapDescriptor.hueGreen,
+                                        ),
                                       ),
-                                      border: Border.all(color: Colors.grey[300]!, width: 1),
-                                    ),
-                                    child: const Icon(Icons.add, size: 22, color: Colors.black87),
+                                    }
+                                  : {},
+                              zoomGesturesEnabled: false,
+                              scrollGesturesEnabled: false,
+                              rotateGesturesEnabled: false,
+                              tiltGesturesEnabled: false,
+                              myLocationButtonEnabled: false,
+                              zoomControlsEnabled: false,
+                              onMapCreated: (controller) {
+                                _pickupMapController = controller;
+                                if (_pickupLatLng != null) {
+                                  controller.animateCamera(
+                                    CameraUpdate.newLatLngZoom(_pickupLatLng!, 16),
+                                  );
+                                }
+                              },
+                            ),
+                            Container(
+                              color: Colors.transparent,
+                              child: Center(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(20),
                                   ),
-                                ),
-                              ),
-                              Container(
-                                width: 44,
-                                height: 1,
-                                color: Colors.grey[300],
-                              ),
-                              Material(
-                                color: Colors.white,
-                                borderRadius: const BorderRadius.only(
-                                  bottomLeft: Radius.circular(8),
-                                  bottomRight: Radius.circular(8),
-                                ),
-                                elevation: 4,
-                                shadowColor: Colors.black26,
-                                child: InkWell(
-                                  onTap: () {
-                                    _pickupMapController!.animateCamera(
-                                      CameraUpdate.zoomOut(),
-                                    );
-                                  },
-                                  borderRadius: const BorderRadius.only(
-                                    bottomLeft: Radius.circular(8),
-                                    bottomRight: Radius.circular(8),
-                                  ),
-                                  child: Container(
-                                    width: 44,
-                                    height: 44,
-                                    decoration: BoxDecoration(
-                                      borderRadius: const BorderRadius.only(
-                                        bottomLeft: Radius.circular(8),
-                                        bottomRight: Radius.circular(8),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.map, color: Colors.white, size: 20),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Tap to change location',
+                                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                                       ),
-                                      border: Border.all(color: Colors.grey[300]!, width: 1),
-                                    ),
-                                    child: const Icon(Icons.remove, size: 22, color: Colors.black87),
+                                    ],
                                   ),
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                      // Tap to change overlay
-                      if (!_isLoadingPickupLocation)
-                      Container(
-                        color: Colors.transparent,
-                        child: Center(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.black54,
-                              borderRadius: BorderRadius.circular(20),
                             ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.map, color: Colors.white, size: 20),
-                                SizedBox(width: 8),
-                                Text(
-                                    'Tap to change location',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
                 ),
               ),
             ),
-            
             const SizedBox(height: 24),
             
-            // Sender details
+            // Sender Details
             TextFormField(
               controller: _senderNameController,
               decoration: const InputDecoration(
@@ -1043,47 +768,120 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
               ),
               maxLines: 3,
             ),
+            
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 16),
+            
+            // Package Details
+            const Text(
+              'Package Details',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _itemDetailsController,
+              decoration: const InputDecoration(
+                labelText: 'Details of Item *',
+                hintText: 'Describe the item being sent',
+                prefixIcon: Icon(Icons.inventory_2),
+              ),
+              validator: (value) =>
+                  value?.trim().isEmpty ?? true ? 'Item details are required' : null,
+              maxLines: 2,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _itemWeightController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+              ],
+              decoration: const InputDecoration(
+                labelText: 'Weight (kg)',
+                hintText: 'e.g., 1.5',
+                prefixIcon: Icon(Icons.scale),
+              ),
+              validator: (value) {
+  if (value == null || value.trim().isEmpty) {
+    return null; // ✅ optional
+  }
+
+  final weight = double.tryParse(value.trim());
+  if (weight == null || weight <= 0) {
+    return 'Please enter a valid weight';
+  }
+
+  return null;
+},
+
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _itemQuantityController,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Quantity *',
+                hintText: 'e.g., 1',
+                prefixIcon: Icon(Icons.numbers),
+              ),
+              validator: (value) {
+                if (value?.trim().isEmpty ?? true) return 'Quantity is required';
+                final quantity = int.tryParse(value!.trim());
+                if (quantity == null || quantity <= 0) return 'Please enter a valid quantity';
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            CheckboxListTile(
+              title: const Text('Thermal Bag'),
+              subtitle: const Text('Keep items cool/warm during delivery'),
+              value: _needsThermalBag,
+              onChanged: (value) => setState(() => _needsThermalBag = value ?? false),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              title: const Text('Abono (Cash on Delivery)'),
+              subtitle: const Text('Additional ₱55.00 fee'),
+              value: _needsAbono,
+              onChanged: (value) {
+                setState(() {
+                  _needsAbono = value ?? false;
+                  _calculateDeliveryFee();
+                });
+              },
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
           ],
         ),
       ),
     );
   }
-  
+
   Widget _buildDropoffStep() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Form(
         key: _formKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
-        children: [
-          const Text(
-            'Dropoff Location (Recipient)',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-                  ),
+              children: [
+                const Text(
+                  'Dropoff Location (Recipient)',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  '*',
-                  style: TextStyle(
-                    fontSize: 20,
-                    color: AppColors.error,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                Text('*', style: TextStyle(fontSize: 20, color: AppColors.error, fontWeight: FontWeight.bold)),
               ],
             ),
             const SizedBox(height: 8),
             Text(
               'Select the dropoff location on the map (Required)',
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.textSecondary,
-              ),
+              style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
             ),
             if (_dropoffLatLng == null || _dropoffAddress == null)
               Container(
@@ -1101,164 +899,131 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                     Expanded(
                       child: Text(
                         'Dropoff location is required to proceed',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppColors.error,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-            // Address display
-          TextFormField(
-              readOnly: true,
-              controller: TextEditingController(text: _dropoffAddress ?? ''),
-            decoration: InputDecoration(
-                labelText: 'Dropoff Address *',
-                prefixIcon: const Icon(Icons.flag),
-              suffixIcon: IconButton(
-                  icon: const Icon(Icons.map),
-                  onPressed: () => _openMapModal(false),
-                  tooltip: 'Select on map',
-              ),
-            ),
-            validator: (value) {
-                if (_dropoffLatLng == null || _dropoffAddress == null || _dropoffAddress!.isEmpty) {
-                  return 'Please select a dropoff location on the map';
-              }
-              return null;
-            },
-          ),
-          
-            const SizedBox(height: 16),
-            
-            // Map for selection
-          GestureDetector(
-            onTap: () => _openMapModal(false),
-            child: Container(
-              height: 300,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.border, width: 2),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Stack(
-                  children: [
-                    GoogleMap(
-                      key: ValueKey(_dropoffLatLng?.toString() ?? 'dropoff_map'),
-                      initialCameraPosition: CameraPosition(
-                        target: _dropoffLatLng ?? const LatLng(14.5995, 120.9842),
-                        zoom: _dropoffLatLng != null ? 15 : 12,
-                      ),
-                      markers: _dropoffLatLng != null
-                          ? {
-                              Marker(
-                                markerId: const MarkerId('dropoff'),
-                                position: _dropoffLatLng!,
-                                icon: BitmapDescriptor.defaultMarkerWithHue(
-                                  BitmapDescriptor.hueRed,
-                                ),
-                              ),
-                            }
-                          : {},
-                      zoomGesturesEnabled: false,
-                      scrollGesturesEnabled: false,
-                      rotateGesturesEnabled: false,
-                      tiltGesturesEnabled: false,
-                      myLocationButtonEnabled: false,
-                      zoomControlsEnabled: false,
-                      onMapCreated: (controller) {
-                        _dropoffMapController = controller;
-                        if (_dropoffLatLng != null) {
-                          controller.animateCamera(
-                            CameraUpdate.newLatLngZoom(_dropoffLatLng!, 16),
-                          );
-                        }
-                      },
-                    ),
-                    Container(
-                      color: Colors.transparent,
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.black54,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.map, color: Colors.white, size: 20),
-                              SizedBox(width: 8),
-                              Text(
-                                'Tap to select location',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        style: TextStyle(fontSize: 12, color: AppColors.error, fontWeight: FontWeight.w500),
                       ),
                     ),
                   ],
                 ),
               ),
+            const SizedBox(height: 16),
+            
+            _buildLocationSelector(
+              label: 'Dropoff Address',
+              address: _dropoffAddress,
+              onTap: () => _openMapModal(false),
+              isLoading: false,
+              accentColor: AppColors.primary,
+              icon: Icons.flag,
             ),
-          ),
-          
-          const SizedBox(height: 24),
-          
-          // Recipient details
-          TextFormField(
-            controller: _recipientNameController,
-            decoration: const InputDecoration(
-              labelText: 'Recipient Name',
-              prefixIcon: Icon(Icons.person),
+            const SizedBox(height: 16),
+            
+            GestureDetector(
+              onTap: () => _openMapModal(false),
+              child: Container(
+                height: 300,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border, width: 2),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Stack(
+                    children: [
+                      GoogleMap(
+                        key: ValueKey(_dropoffLatLng?.toString() ?? 'dropoff_map'),
+                        initialCameraPosition: CameraPosition(
+                          target: _dropoffLatLng ?? const LatLng(14.5995, 120.9842),
+                          zoom: _dropoffLatLng != null ? 15 : 12,
+                        ),
+                        markers: _dropoffLatLng != null
+                            ? {
+                                Marker(
+                                  markerId: const MarkerId('dropoff'),
+                                  position: _dropoffLatLng!,
+                                  icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+                                ),
+                              }
+                            : {},
+                        zoomGesturesEnabled: false,
+                        scrollGesturesEnabled: false,
+                        rotateGesturesEnabled: false,
+                        tiltGesturesEnabled: false,
+                        myLocationButtonEnabled: false,
+                        zoomControlsEnabled: false,
+                        onMapCreated: (controller) {
+                          _dropoffMapController = controller;
+                          if (_dropoffLatLng != null) {
+                            controller.animateCamera(CameraUpdate.newLatLngZoom(_dropoffLatLng!, 16));
+                          }
+                        },
+                      ),
+                      Container(
+                        color: Colors.transparent,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.map, color: Colors.white, size: 20),
+                                SizedBox(width: 8),
+                                Text('Tap to select location', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-            validator: (value) =>
-                value?.trim().isEmpty ?? true ? 'Recipient name is required' : null,
-          ),
-          const SizedBox(height: 16),
-          TextFormField(
-            controller: _recipientPhoneController,
-            keyboardType: TextInputType.phone,
-            maxLength: 11,
-            decoration: const InputDecoration(
-              labelText: 'Recipient Phone',
-              hintText: '09XXXXXXXXX',
-              prefixIcon: Icon(Icons.phone),
-              counterText: '',
+            const SizedBox(height: 24),
+            
+            TextFormField(
+              controller: _recipientNameController,
+              decoration: const InputDecoration(
+                labelText: 'Recipient Name',
+                prefixIcon: Icon(Icons.person),
+              ),
+              validator: (value) =>
+                  value?.trim().isEmpty ?? true ? 'Recipient name is required' : null,
             ),
-            validator: _validatePhoneNumber,
-          ),
-          const SizedBox(height: 16),
-          TextFormField(
-            controller: _recipientNotesController,
-            decoration: const InputDecoration(
-              labelText: 'Notes (Optional)',
-              prefixIcon: Icon(Icons.note),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _recipientPhoneController,
+              keyboardType: TextInputType.phone,
+              maxLength: 11,
+              decoration: const InputDecoration(
+                labelText: 'Recipient Phone',
+                hintText: '09XXXXXXXXX',
+                prefixIcon: Icon(Icons.phone),
+                counterText: '',
+              ),
+              validator: _validatePhoneNumber,
             ),
-            maxLines: 3,
-          ),
-        ],
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _recipientNotesController,
+              decoration: const InputDecoration(
+                labelText: 'Notes (Optional)',
+                prefixIcon: Icon(Icons.note),
+              ),
+              maxLines: 3,
+            ),
+          ],
         ),
       ),
     );
   }
   
   Widget _buildConfirmationStep() {
-    // Calculate fee if not already calculated
     if (_deliveryFee == null && _pickupLatLng != null && _dropoffLatLng != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _calculateDeliveryFee();
-      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _calculateDeliveryFee());
     }
     
     return SingleChildScrollView(
@@ -1268,14 +1033,10 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
         children: [
           const Text(
             'Confirm Delivery Details',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 24),
           
-          // Parcel Photo
           if (_parcelPhoto != null)
             Card(
               child: Padding(
@@ -1283,30 +1044,19 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-          const Text(
-                      'Parcel Photo',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
+                    const Text('Parcel Photo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 12),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.file(
-                        _parcelPhoto!,
-                        height: 150,
-                        fit: BoxFit.cover,
-                      ),
+                      child: Image.file(_parcelPhoto!, height: 150, fit: BoxFit.cover),
                     ),
                   ],
                 ),
+              ),
             ),
-          ),
           
           const SizedBox(height: 16),
           
-          // Pickup Details
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -1317,14 +1067,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                     children: [
                       Icon(Icons.location_on, color: AppColors.primary, size: 20),
                       const SizedBox(width: 8),
-                  const Text(
-                    'Pickup',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                      color: AppColors.primary,
-                    ),
-                  ),
+                      const Text('Pickup', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primary)),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -1334,14 +1077,50 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                   Text('Phone: ${_senderPhoneController.text}'),
                   if (_senderNotesController.text.trim().isNotEmpty)
                     Text('Notes: ${_senderNotesController.text.trim()}'),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => setState(() => _activeStep = 0),
+                        icon: const Icon(Icons.edit_location, size: 16),
+                        label: const Text('Edit'),
+                      ),
+                    ],
+                  ),
+                  if (_pickupLatLng != null)
+                    Container(
+                      height: 200,
+                      margin: const EdgeInsets.only(top: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: GoogleMap(
+                          initialCameraPosition: CameraPosition(target: _pickupLatLng!, zoom: 16),
+                          markers: {
+                            Marker(
+                              markerId: const MarkerId('pickup'),
+                              position: _pickupLatLng!,
+                              icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+                            ),
+                          },
+                          scrollGesturesEnabled: false,
+                          zoomGesturesEnabled: false,
+                          myLocationButtonEnabled: false,
+                          zoomControlsEnabled: false,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
           ),
           
-                  const SizedBox(height: 16),
+          const SizedBox(height: 16),
           
-          // Dropoff Details
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -1352,14 +1131,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                     children: [
                       Icon(Icons.flag, color: AppColors.error, size: 20),
                       const SizedBox(width: 8),
-                  const Text(
-                    'Dropoff',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                      color: AppColors.error,
-                    ),
-                  ),
+                      const Text('Dropoff', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.error)),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -1369,64 +1141,93 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                   Text('Phone: ${_recipientPhoneController.text}'),
                   if (_recipientNotesController.text.trim().isNotEmpty)
                     Text('Notes: ${_recipientNotesController.text.trim()}'),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => setState(() => _activeStep = 1),
+                        icon: const Icon(Icons.edit_location, size: 16),
+                        label: const Text('Edit'),
+                      ),
+                    ],
+                  ),
+                  if (_dropoffLatLng != null)
+                    Container(
+                      height: 200,
+                      margin: const EdgeInsets.only(top: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: GoogleMap(
+                          initialCameraPosition: CameraPosition(target: _dropoffLatLng!, zoom: 16),
+                          markers: {
+                            Marker(
+                              markerId: const MarkerId('dropoff'),
+                              position: _dropoffLatLng!,
+                              icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+                            ),
+                          },
+                          scrollGesturesEnabled: false,
+                          zoomGesturesEnabled: false,
+                          myLocationButtonEnabled: false,
+                          zoomControlsEnabled: false,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
           ),
           
-          if (_packageDescriptionController.text.trim().isNotEmpty) ...[
-                  const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Package Description',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(_packageDescriptionController.text.trim()),
-                  ],
-                ),
-              ),
-            ),
-          ],
-          
-                  const SizedBox(height: 16),
-          
-          // Delivery Fee Breakdown
+          const SizedBox(height: 16),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Delivery Fee Breakdown',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
+                  const Text('Package Details', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 12),
+                  _buildInfoRow('Item Details', _itemDetailsController.text.trim()),
+                  _buildInfoRow('Weight', '${_itemWeightController.text.trim()} kg'),
+                  _buildInfoRow('Quantity', _itemQuantityController.text.trim()),
+                  if (_needsThermalBag)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(
+                        children: [
+                          Icon(Icons.check_circle, color: AppColors.success, size: 16),
+                          const SizedBox(width: 8),
+                          const Text('Thermal Bag Required'),
+                        ],
+                      ),
                     ),
-                  ),
+                ],
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Delivery Fee Breakdown', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   const SizedBox(height: 16),
                   
                   if (_distance != null) ...[
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                        Text(
-                          'Distance',
-                          style: TextStyle(color: AppColors.textSecondary),
-                        ),
-                        Text(
-                          '${_distance!.toStringAsFixed(2)} km',
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                        ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Distance', style: TextStyle(color: AppColors.textSecondary)),
+                        Text('${_distance!.toStringAsFixed(2)} km', style: const TextStyle(fontWeight: FontWeight.w500)),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -1435,14 +1236,8 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Base Fee (First km)',
-                        style: TextStyle(color: AppColors.textSecondary),
-                      ),
-                      const Text(
-                        '₱55.00',
-                        style: TextStyle(fontWeight: FontWeight.w500),
-                      ),
+                      Text('Base Fee (First km)', style: TextStyle(color: AppColors.textSecondary)),
+                      const Text('₱55.00', style: TextStyle(fontWeight: FontWeight.w500)),
                     ],
                   ),
                   
@@ -1455,10 +1250,18 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                           'Additional Fee (${(_distance! - 1.0).toStringAsFixed(2)} km × ₱10.00)',
                           style: TextStyle(color: AppColors.textSecondary),
                         ),
-                        Text(
-                          '₱${((_distance! - 1.0) * 10.0).toStringAsFixed(2)}',
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                        ),
+                        Text('₱${((_distance! - 1.0) * 10.0).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w500)),
+                      ],
+                    ),
+                  ],
+                  
+                  if (_needsAbono) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Abono (Cash on Delivery)', style: TextStyle(color: AppColors.textSecondary)),
+                        const Text('₱55.00', style: TextStyle(fontWeight: FontWeight.w500)),
                       ],
                     ),
                   ],
@@ -1468,31 +1271,187 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Total Delivery Fee',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
+                      const Text('Total Delivery Fee', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                       Text(
-                        _deliveryFee != null
-                            ? '₱${_deliveryFee!.toStringAsFixed(2)}'
-                            : 'Calculating...',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                          color: AppColors.primary,
-                        ),
+                        _deliveryFee != null ? '₱${_deliveryFee!.toStringAsFixed(2)}' : 'Calculating...',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.primary),
                       ),
                     ],
-                    ),
+                  ),
                 ],
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+Widget _buildLocationSelector({
+  required String label,
+  required String? address,
+  required VoidCallback onTap,
+  required bool isLoading,
+  required Color accentColor,
+  required IconData icon,
+}) {
+  return GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: isLoading ? null : onTap,
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: address == null ? Colors.grey.shade400 : accentColor,
+          width: 2,
+        ),
+        color: Colors.white,
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: accentColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: accentColor, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (label.contains('Dropoff'))
+                      Text(' *', style: TextStyle(fontSize: 12, color: AppColors.error, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                if (isLoading)
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: accentColor),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Fetching location...',
+                        style: TextStyle(fontSize: 15, color: Colors.grey.shade600, fontStyle: FontStyle.italic),
+                      ),
+                    ],
+                  )
+                else
+                  Text(
+                    address ?? 'Tap to select location on map',
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: address == null ? Colors.grey.shade500 : Colors.black87,
+                      fontWeight: address == null ? FontWeight.normal : FontWeight.w500,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          if (!isLoading)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: accentColor,
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(color: accentColor.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2)),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.edit_location_alt, color: Colors.white, size: 24),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Change',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(label, style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepIndicator(int step, String label) {
+    final isActive = _activeStep == step;
+    final isCompleted = _activeStep > step;
+    return Column(
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isActive || isCompleted ? AppColors.primary : AppColors.border,
+          ),
+          child: Center(
+            child: isCompleted
+                ? const Icon(Icons.check, color: Colors.white, size: 20)
+                : Text(
+                    '${step + 1}',
+                    style: TextStyle(
+                      color: isActive || isCompleted ? Colors.white : AppColors.textSecondary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: isActive || isCompleted ? AppColors.primary : AppColors.textSecondary,
+            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ],
     );
   }
 
@@ -1514,49 +1473,35 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
       ),
       body: Column(
         children: [
-          // Step indicator
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                _buildStepIndicator(0, 'Photo'),
+                _buildStepIndicator(0, 'Pickup'),
                 Expanded(
                   child: Container(
                     height: 2,
                     color: _activeStep > 0 ? AppColors.primary : AppColors.border,
                   ),
                 ),
-                _buildStepIndicator(1, 'Pickup'),
+                _buildStepIndicator(1, 'Dropoff'),
                 Expanded(
                   child: Container(
                     height: 2,
                     color: _activeStep > 1 ? AppColors.primary : AppColors.border,
                   ),
                 ),
-                _buildStepIndicator(2, 'Dropoff'),
-                Expanded(
-                  child: Container(
-                    height: 2,
-                    color: _activeStep > 2 ? AppColors.primary : AppColors.border,
-                  ),
-                ),
-                _buildStepIndicator(3, 'Confirm'),
+                _buildStepIndicator(2, 'Confirm'),
               ],
             ),
           ),
-          
-          // Form content
           Expanded(
             child: _activeStep == 0
-                ? _buildPhotoStep()
+                ? _buildPickupAndPhotoStep()
                 : _activeStep == 1
-                    ? _buildPickupStep()
-                    : _activeStep == 2
-                        ? _buildDropoffStep()
-                        : _buildConfirmationStep(),
+                    ? _buildDropoffStep()
+                    : _buildConfirmationStep(),
           ),
-          
-          // Navigation buttons
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -1564,9 +1509,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                 if (_activeStep > 0)
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _isLoading ? null : () {
-                        setState(() => _activeStep--);
-                      },
+                      onPressed: _isLoading ? null : () => setState(() => _activeStep--),
                       child: const Text('Back'),
                     ),
                   ),
@@ -1576,39 +1519,35 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                     onPressed: _isLoading
                         ? null
                         : () {
-                            if (_activeStep < 3) {
+                            if (_activeStep < 2) {
                               if (_activeStep == 0) {
-                                // Photo step - just need photo
                                 if (_parcelPhoto == null) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(content: Text('Please take a photo of the parcel')),
                                   );
                                   return;
                                 }
-                                setState(() => _activeStep++);
-                              } else if (_activeStep == 1 || _activeStep == 2) {
-                                // Pickup/Dropoff steps - validate form
-                              if (_formKey.currentState?.validate() ?? false) {
-                                  // Additional validation for dropoff step
-                                  if (_activeStep == 2) {
-                                    if (_dropoffLatLng == null || _dropoffAddress == null || _dropoffAddress!.isEmpty) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Please select a dropoff location on the map'),
-                                          backgroundColor: AppColors.error,
-                                        ),
-                                      );
-                                      return;
-                                    }
-                                    if (_pickupLatLng != null && _dropoffLatLng != null) {
-                                  _calculateDeliveryFee();
-                                    }
+                                if (_formKey.currentState?.validate() ?? false) {
+                                  setState(() => _activeStep++);
                                 }
-                                setState(() => _activeStep++);
+                              } else if (_activeStep == 1) {
+                                if (_formKey.currentState?.validate() ?? false) {
+                                  if (_dropoffLatLng == null || _dropoffAddress == null || _dropoffAddress!.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Please select a dropoff location on the map'),
+                                        backgroundColor: AppColors.error,
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                  if (_pickupLatLng != null && _dropoffLatLng != null) {
+                                    _calculateDeliveryFee();
+                                  }
+                                  setState(() => _activeStep++);
                                 }
                               }
                             } else {
-                              // Confirmation step - book delivery
                               _bookPadala();
                             }
                           },
@@ -1618,7 +1557,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                             width: 20,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : Text(_activeStep < 3 ? 'Next' : 'Confirm & Book'),
+                        : Text(_activeStep < 2 ? 'Next' : 'Confirm & Book'),
                   ),
                 ),
               ],
@@ -1628,58 +1567,13 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
       ),
     );
   }
-  
-  Widget _buildStepIndicator(int step, String label) {
-    final isActive = _activeStep == step;
-    final isCompleted = _activeStep > step;
-    
-    return Column(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: isActive || isCompleted
-                ? AppColors.primary
-                : AppColors.border,
-          ),
-          child: Center(
-            child: isCompleted
-                ? const Icon(Icons.check, color: Colors.white, size: 20)
-                : Text(
-                    '${step + 1}',
-                    style: TextStyle(
-                      color: isActive || isCompleted
-                          ? Colors.white
-                          : AppColors.textSecondary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: isActive || isCompleted
-                ? AppColors.primary
-                : AppColors.textSecondary,
-            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ],
-    );
-  }
 }
 
-// Map Selector Widget for Modal
 class _MapSelector extends StatefulWidget {
   final LatLng initialPosition;
   final bool isPickup;
   final Function(LatLng) onLocationSelected;
-
+  
   const _MapSelector({
     required this.initialPosition,
     required this.isPickup,
@@ -1705,10 +1599,7 @@ class _MapSelectorState extends State<_MapSelector> {
     return Stack(
       children: [
         GoogleMap(
-          initialCameraPosition: CameraPosition(
-            target: _selectedPosition,
-            zoom: 16,
-          ),
+          initialCameraPosition: CameraPosition(target: _selectedPosition, zoom: 16),
           markers: {
             Marker(
               markerId: const MarkerId('selected'),
@@ -1717,109 +1608,28 @@ class _MapSelectorState extends State<_MapSelector> {
                 widget.isPickup ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
               ),
               draggable: true,
-              onDragEnd: (newPosition) {
-                setState(() {
-                  _selectedPosition = newPosition;
-                });
-              },
+              onDragEnd: (newPosition) => setState(() => _selectedPosition = newPosition),
             ),
           },
           myLocationEnabled: true,
           myLocationButtonEnabled: true,
-          zoomControlsEnabled: false, // Disable default controls, use custom ones
+          zoomControlsEnabled: false,
           zoomGesturesEnabled: true,
           scrollGesturesEnabled: true,
           rotateGesturesEnabled: true,
           tiltGesturesEnabled: true,
-          onMapCreated: (controller) {
-            _mapController = controller;
-          },
-          onTap: (latLng) {
-            setState(() {
-              _selectedPosition = latLng;
-            });
-          },
+          onMapCreated: (controller) => _mapController = controller,
+          onTap: (latLng) => setState(() => _selectedPosition = latLng),
         ),
-        // Custom zoom controls - positioned on LEFT side, always visible
         Positioned(
-          top: 100, // Position below AppBar (AppBar ~56px + padding)
-          left: 16, // Left side to avoid my location button on right
+          top: 100,
+          left: 16,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Material(
-                color: Colors.white,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(8),
-                  topRight: Radius.circular(8),
-                ),
-                elevation: 10,
-                shadowColor: Colors.black87,
-                child: InkWell(
-                  onTap: () {
-                    if (_mapController != null) {
-                      _mapController!.animateCamera(
-                        CameraUpdate.zoomIn(),
-                      );
-                    }
-                  },
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(8),
-                    topRight: Radius.circular(8),
-                  ),
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(8),
-                        topRight: Radius.circular(8),
-                      ),
-                      border: Border.all(color: Colors.grey[700]!, width: 2.5),
-                    ),
-                    child: const Icon(Icons.add, size: 32, color: Colors.black87),
-                  ),
-                ),
-              ),
-              Container(
-                width: 56,
-                height: 2,
-                color: Colors.grey[500],
-              ),
-              Material(
-                color: Colors.white,
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(8),
-                  bottomRight: Radius.circular(8),
-                ),
-                elevation: 10,
-                shadowColor: Colors.black87,
-                child: InkWell(
-                  onTap: () {
-                    if (_mapController != null) {
-                      _mapController!.animateCamera(
-                        CameraUpdate.zoomOut(),
-                      );
-                    }
-                  },
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(8),
-                    bottomRight: Radius.circular(8),
-                  ),
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      borderRadius: const BorderRadius.only(
-                        bottomLeft: Radius.circular(8),
-                        bottomRight: Radius.circular(8),
-                      ),
-                      border: Border.all(color: Colors.grey[700]!, width: 2.5),
-                    ),
-                    child: const Icon(Icons.remove, size: 32, color: Colors.black87),
-                  ),
-                ),
-              ),
+              _buildZoomButton(Icons.add, () => _mapController?.animateCamera(CameraUpdate.zoomIn()), true),
+              Container(width: 56, height: 2, color: Colors.grey[500]),
+              _buildZoomButton(Icons.remove, () => _mapController?.animateCamera(CameraUpdate.zoomOut()), false),
             ],
           ),
         ),
@@ -1836,43 +1646,25 @@ class _MapSelectorState extends State<_MapSelector> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(8),
                   boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
+                    BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 2)),
                   ],
                 ),
                 child: Text(
                   '💡 Tap anywhere on the map or drag the marker to set location',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                   textAlign: TextAlign.center,
                 ),
               ),
               const SizedBox(height: 12),
               ElevatedButton.icon(
-                onPressed: () {
-                  widget.onLocationSelected(_selectedPosition);
-                },
+                onPressed: () => widget.onLocationSelected(_selectedPosition),
                 icon: const Icon(Icons.check, color: Colors.white),
-                label: const Text(
-                  'Confirm Location',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                label: const Text('Confirm Location', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                   minimumSize: const Size(double.infinity, 56),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
             ],
@@ -1881,5 +1673,41 @@ class _MapSelectorState extends State<_MapSelector> {
       ],
     );
   }
-}
 
+  Widget _buildZoomButton(IconData icon, VoidCallback onTap, bool isTop) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.only(
+        topLeft: isTop ? const Radius.circular(8) : Radius.zero,
+        topRight: isTop ? const Radius.circular(8) : Radius.zero,
+        bottomLeft: !isTop ? const Radius.circular(8) : Radius.zero,
+        bottomRight: !isTop ? const Radius.circular(8) : Radius.zero,
+      ),
+      elevation: 10,
+      shadowColor: Colors.black87,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.only(
+          topLeft: isTop ? const Radius.circular(8) : Radius.zero,
+          topRight: isTop ? const Radius.circular(8) : Radius.zero,
+          bottomLeft: !isTop ? const Radius.circular(8) : Radius.zero,
+          bottomRight: !isTop ? const Radius.circular(8) : Radius.zero,
+        ),
+        child: Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.only(
+              topLeft: isTop ? const Radius.circular(8) : Radius.zero,
+              topRight: isTop ? const Radius.circular(8) : Radius.zero,
+              bottomLeft: !isTop ? const Radius.circular(8) : Radius.zero,
+              bottomRight: !isTop ? const Radius.circular(8) : Radius.zero,
+            ),
+            border: Border.all(color: Colors.grey[700]!, width: 2.5),
+          ),
+          child: Icon(icon, size: 32, color: Colors.black87),
+        ),
+      ),
+    );
+  }
+}

@@ -101,6 +101,11 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
           ),
         );
         _loadDeliveries();
+        // Redirect to dashboard after completion
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/service-selection',
+          (route) => false,
+        );
       }
     } catch (e) {
       debugPrint('Error completing delivery: $e');
@@ -194,6 +199,9 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
       case 'on_the_way':
       case 'on the way':
         return Colors.purple;
+      case 'dropoff':
+      case 'drop_off':
+        return Colors.orange;
       case 'delivered':
       case 'completed':
         return AppColors.success;
@@ -222,6 +230,9 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
       case 'on_the_way':
       case 'on the way':
         return 'On the Way';
+      case 'dropoff':
+      case 'drop_off':
+        return 'To Complete';
       case 'delivered':
         return 'Delivered';
       case 'completed':
@@ -693,7 +704,9 @@ class _OrderHistoryPageState extends State<OrderHistoryPage>
                             ),
                           ),
                         )
-                      else if (normalizedStatus == 'delivered')
+                      else if (normalizedStatus == 'delivered' || 
+                               normalizedStatus == 'dropoff' ||
+                               normalizedStatus == 'drop_off')
                         Flexible(
                           child: ElevatedButton.icon(
                           onPressed: () => _markAsCompleted(delivery),

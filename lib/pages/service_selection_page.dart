@@ -33,7 +33,6 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Reload deliveries when page becomes visible
     if (mounted) {
       _loadActiveDeliveries();
     }
@@ -48,7 +47,7 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
             .select('firstname')
             .eq('id', user.id)
             .maybeSingle();
-        
+
         if (mounted && response != null) {
           setState(() {
             _userName = response['firstname'] as String?;
@@ -67,19 +66,17 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
         setState(() => _loadingDeliveries = false);
         return;
       }
-      
-      final allDeliveries = await _service.getCustomerDeliveries(customerId: user.id);
-      
-      // Filter for active deliveries (not delivered, completed, or cancelled)
+
+      final allDeliveries =
+          await _service.getCustomerDeliveries(customerId: user.id);
+
       final activeDeliveries = allDeliveries.where((d) {
         final status = (d['status']?.toString().toLowerCase() ?? '').trim();
-        final isActive = status != 'delivered' && 
-                        status != 'completed' && 
-                        status != 'cancelled';
-        return isActive;
+        return status != 'delivered' &&
+            status != 'completed' &&
+            status != 'cancelled';
       }).toList();
-      
-      
+
       if (mounted) {
         setState(() {
           _activeDeliveries = activeDeliveries;
@@ -160,9 +157,11 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Icon(Icons.refresh, color: Colors.white, size: 24),
+                              : const Icon(Icons.refresh,
+                                  color: Colors.white, size: 24),
                         ),
-                        onPressed: _loadingDeliveries ? null : () => _loadActiveDeliveries(),
+                        onPressed:
+                            _loadingDeliveries ? null : _loadActiveDeliveries,
                         tooltip: 'Refresh',
                       ),
                       IconButton(
@@ -172,16 +171,18 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
                             color: Colors.white.withOpacity(0.2),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.person, color: Colors.white, size: 24),
+                          child: const Icon(Icons.person,
+                              color: Colors.white, size: 24),
                         ),
-                        onPressed: () => Navigator.of(context).pushNamed(ProfilePage.routeName),
+                        onPressed: () => Navigator.of(context)
+                            .pushNamed(ProfilePage.routeName),
                       ),
                     ],
                   ),
                 ],
               ),
             ),
-            
+
             // Active Deliveries Section
             if (_activeDeliveries.isNotEmpty)
               Container(
@@ -197,7 +198,8 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.pending_actions, color: Colors.orange.shade700, size: 20),
+                        Icon(Icons.pending_actions,
+                            color: Colors.orange.shade700, size: 20),
                         const SizedBox(width: 8),
                         Text(
                           'Active Deliveries (${_activeDeliveries.length})',
@@ -213,49 +215,61 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
                     ..._activeDeliveries.take(3).map((delivery) {
                       final type = delivery['type'] as String?;
                       final isPadala = type == 'parcel';
-                      final status = delivery['status'] as String? ?? 'pending';
+                      final status =
+                          delivery['status'] as String? ?? 'pending';
                       final deliveryId = delivery['id'] as String;
-                      
+
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
                           leading: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: isPadala ? Colors.green.shade100 : AppColors.primary.withOpacity(0.1),
+                              color: isPadala
+                                  ? Colors.green.shade100
+                                  : AppColors.primary.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Icon(
-                              isPadala ? Icons.local_shipping : Icons.restaurant,
-                              color: isPadala ? Colors.green : AppColors.primary,
+                              isPadala
+                                  ? Icons.local_shipping
+                                  : Icons.restaurant,
+                              color: isPadala
+                                  ? Colors.green
+                                  : AppColors.primary,
                               size: 24,
                             ),
                           ),
                           title: Text(
-                            isPadala ? 'Padala Delivery' : 'Food Order',
-                            style: const TextStyle(fontWeight: FontWeight.w600),
+                            isPadala
+                                ? 'Padala Delivery'
+                                : 'Food Order',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           subtitle: Text(
                             'Status: ${status.replaceAll('_', ' ')}',
-                            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary),
                           ),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () async {
                             if (isPadala) {
-                              final result = await Navigator.of(context).pushNamed(
+                              final result =
+                                  await Navigator.of(context).pushNamed(
                                 PadalaTrackingPage.routeName,
                                 arguments: deliveryId,
                               );
-                              // Refresh if delivery was cancelled
                               if (result == true && mounted) {
                                 _loadActiveDeliveries();
                               }
                             } else {
-                              final result = await Navigator.of(context).pushNamed(
+                              final result =
+                                  await Navigator.of(context).pushNamed(
                                 OrderTrackingPage.routeName,
                                 arguments: deliveryId,
                               );
-                              // Refresh if delivery was cancelled
                               if (result == true && mounted) {
                                 _loadActiveDeliveries();
                               }
@@ -267,84 +281,95 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
                     if (_activeDeliveries.length > 3)
                       TextButton(
                         onPressed: () {
-                          Navigator.of(context).pushNamed(OrderHistoryPage.routeName);
+                          Navigator.of(context)
+                              .pushNamed(OrderHistoryPage.routeName);
                         },
-                        child: Text('View all ${_activeDeliveries.length} deliveries'),
+                        child: Text(
+                            'View all ${_activeDeliveries.length} deliveries'),
                       ),
                   ],
                 ),
               ),
-            
+
             // Service Cards
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // Pabili Service Card
-                    _buildServiceCard(
-                      context: context,
-                      icon: Icons.shopping_bag,
-                      title: 'Pabili',
-                      subtitle: 'Order food & products from local merchants',
-                      color: AppColors.primary,
-                      onTap: () {
-                        Navigator.of(context).pushNamed(MerchantListPage.routeName);
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // Padala Service Card
-                    _buildServiceCard(
-                      context: context,
-                      icon: Icons.local_shipping_outlined,
-                      title: 'Padala',
-                      subtitle: 'Send packages & documents to anyone',
-                      color: Colors.green,
-                      onTap: () async {
-                        final result = await Navigator.of(context).pushNamed(PadalaBookingPage.routeName);
-                        // Refresh if delivery was cancelled during booking
-                        if (result == true && mounted) {
-                          _loadActiveDeliveries();
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 40),
-                    
-                    // Quick Links
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).pushNamed(OrderHistoryPage.routeName);
-                            },
-                            icon: const Icon(Icons.history, size: 20),
-                            label: const Text('Order History'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              side: BorderSide(color: AppColors.primary.withOpacity(0.5)),
+              child: RefreshIndicator(
+                onRefresh: _loadActiveDeliveries,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildServiceCard(
+                        context: context,
+                        icon: Icons.shopping_bag,
+                        title: 'Pabili',
+                        subtitle:
+                            'Order food & products from local merchants',
+                        color: AppColors.primary,
+                        onTap: () {
+                          Navigator.of(context)
+                              .pushNamed(MerchantListPage.routeName);
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      _buildServiceCard(
+                        context: context,
+                        icon: Icons.local_shipping_outlined,
+                        title: 'Padala',
+                        subtitle:
+                            'Send packages & documents to anyone',
+                        color: Colors.green,
+                        onTap: () async {
+                          final result = await Navigator.of(context)
+                              .pushNamed(PadalaBookingPage.routeName);
+                          if (result == true && mounted) {
+                            _loadActiveDeliveries();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 40),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.of(context)
+                                    .pushNamed(OrderHistoryPage.routeName);
+                              },
+                              icon: const Icon(Icons.history, size: 20),
+                              label: const Text('Order History'),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 16),
+                                side: BorderSide(
+                                    color: AppColors.primary
+                                        .withOpacity(0.5)),
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).pushNamed(ProfilePage.routeName);
-                            },
-                            icon: const Icon(Icons.person, size: 20),
-                            label: const Text('Profile'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              side: BorderSide(color: AppColors.primary.withOpacity(0.5)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.of(context)
+                                    .pushNamed(ProfilePage.routeName);
+                              },
+                              icon: const Icon(Icons.person, size: 20),
+                              label: const Text('Profile'),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 16),
+                                side: BorderSide(
+                                    color: AppColors.primary
+                                        .withOpacity(0.5)),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -433,5 +458,3 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
     );
   }
 }
-
-

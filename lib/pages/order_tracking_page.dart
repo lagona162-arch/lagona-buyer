@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
@@ -1016,6 +1017,9 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
       case 'on_the_way':
       case 'on the way':
         return 'Rider is on the way';
+      case 'dropoff':
+      case 'drop_off':
+        return 'To Complete';
       case 'delivered':
         return 'Delivered';
       case 'completed':
@@ -1122,6 +1126,33 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
   Future<void> _showPaymentDialog() async {
     if (widget.orderId == null || _delivery == null) return;
     
+    // Check if payment already exists for this delivery
+    try {
+      final payments = await Supabase.instance.client
+          .from('payments')
+          .select('id, status')
+          .eq('delivery_id', widget.orderId!)
+          .maybeSingle();
+      
+      if (payments != null) {
+        final paymentStatus = payments['status']?.toString().toLowerCase() ?? '';
+        if (paymentStatus == 'pending' || paymentStatus == 'verified' || paymentStatus == 'approved' || paymentStatus == 'confirmed') {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Payment has already been submitted. Please wait for merchant approval.'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking existing payment: $e');
+      // Continue with dialog if check fails
+    }
     
     setState(() => _paymentRequestShown = true);
 
@@ -1322,6 +1353,20 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
                                   ),
                                 ],
                               ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.copy, color: AppColors.primary),
+                              onPressed: () {
+                                final phoneNumber = _delivery!['merchant_gcash_number'] as String;
+                                Clipboard.setData(ClipboardData(text: phoneNumber));
+                                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Phone number copied to clipboard'),
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+                              },
+                              tooltip: 'Copy phone number',
                             ),
                           ],
                         ),
@@ -1931,6 +1976,12 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         );
         
         _loadDelivery();
+        
+        // Redirect to dashboard after completion
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/service-selection',
+          (route) => false,
+        );
       }
     } catch (e) {
       debugPrint('Error completing delivery: $e');
