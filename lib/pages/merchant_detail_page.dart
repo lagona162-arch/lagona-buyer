@@ -1103,6 +1103,149 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
     _showQuantitySelector(item);
   }
 
+  void _showFullScreenImage(String imageUrl, String productName) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) {
+        final mediaQuery = MediaQuery.of(dialogContext);
+        final screenWidth = mediaQuery.size.width;
+        final screenHeight = mediaQuery.size.height;
+        final topPadding = mediaQuery.padding.top;
+        final bottomPadding = mediaQuery.padding.bottom;
+        
+        // Responsive font sizes based on screen width
+        final titleFontSize = screenWidth < 360 ? 14.0 : 16.0;
+        final hintFontSize = screenWidth < 360 ? 10.0 : 12.0;
+        
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: EdgeInsets.zero,
+          child: SizedBox(
+            width: screenWidth,
+            height: screenHeight,
+            child: SafeArea(
+              child: Stack(
+                children: [
+                  // Full screen image with zoom capability
+                  Center(
+                    child: InteractiveViewer(
+                      minScale: 0.5,
+                      maxScale: 4.0,
+                      child: Image.network(
+                        imageUrl,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => Container(
+                          padding: EdgeInsets.all(screenWidth < 360 ? 24 : 40),
+                          color: Colors.black54,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                color: Colors.white,
+                                size: screenWidth < 360 ? 48 : 64,
+                              ),
+                              const SizedBox(height: 16),
+                              const Text(
+                                'Failed to load image',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Product name at the bottom - responsive positioning
+                  Positioned(
+                    bottom: bottomPadding + 20,
+                    left: 16,
+                    right: 16,
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: screenWidth < 360 ? 12 : 16,
+                        vertical: screenWidth < 360 ? 8 : 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        productName,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: titleFontSize,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                  // Close button - responsive positioning
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: IconButton(
+                      icon: Container(
+                        padding: EdgeInsets.all(screenWidth < 360 ? 6 : 8),
+                        decoration: const BoxDecoration(
+                          color: Colors.black54,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: screenWidth < 360 ? 20 : 24,
+                        ),
+                      ),
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                    ),
+                  ),
+                  // Hint text - responsive positioning
+                  Positioned(
+                    top: 16,
+                    left: 8,
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: screenWidth < 360 ? 8 : 12,
+                        vertical: screenWidth < 360 ? 4 : 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.pinch,
+                            color: Colors.white70,
+                            size: screenWidth < 360 ? 14 : 16,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Pinch to zoom',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: hintFontSize,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showQuantitySelector(MenuItem item) {
     final currentQuantity = _cartService.getItemQuantity(item.id);
     // Always start at 1 when opening from the menu (avoid "sticky" quantity).
@@ -1150,77 +1293,149 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                 ),
               ),
               
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                child: Row(
-                  children: [
-                    
-                    Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: item.photoUrl != null
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.network(
-                                item.photoUrl!,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => Icon(
-                                  Icons.restaurant,
-                                  color: AppColors.primary,
-                                  size: 40,
+              // Large product image section
+              Builder(
+                builder: (context) {
+                  final screenWidth = MediaQuery.of(context).size.width;
+                  // Large image that takes most of the width
+                  final imageHeight = screenWidth < 360 ? 180.0 : (screenWidth < 400 ? 200.0 : 220.0);
+                  final titleFontSize = screenWidth < 360 ? 18.0 : 20.0;
+                  final priceFontSize = screenWidth < 360 ? 16.0 : 18.0;
+                  final descFontSize = screenWidth < 360 ? 13.0 : 14.0;
+                  final horizontalPadding = screenWidth < 360 ? 16.0 : 20.0;
+                  
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Large product image
+                      if (item.photoUrl != null)
+                        GestureDetector(
+                          onTap: () => _showFullScreenImage(item.photoUrl!, item.name),
+                          child: Container(
+                            margin: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                            height: imageHeight,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Image.network(
+                                    item.photoUrl!,
+                                    width: double.infinity,
+                                    height: imageHeight,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Center(
+                                      child: Icon(
+                                        Icons.restaurant,
+                                        color: AppColors.primary,
+                                        size: 64,
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            )
-                          : Icon(
+                                // Zoom hint overlay
+                                Positioned(
+                                  right: 8,
+                                  bottom: 8,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.zoom_in,
+                                          color: Colors.white,
+                                          size: screenWidth < 360 ? 14 : 16,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Tap to zoom',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: screenWidth < 360 ? 10 : 11,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          margin: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                          height: 120,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Center(
+                            child: Icon(
                               Icons.restaurant,
                               color: AppColors.primary,
-                              size: 40,
-                            ),
-                    ),
-                    const SizedBox(width: 16),
-                    
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item.name,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textPrimary,
+                              size: 48,
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '₱${(item.priceCents / 100).toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (item.description != null && item.description!.isNotEmpty) ...[
-                            const SizedBox(height: 4),
+                        ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      // Product details below image
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              item.description!,
+                              item.name,
                               style: TextStyle(
-                                fontSize: 14,
-                                color: AppColors.textSecondary,
+                                fontSize: titleFontSize,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary,
                               ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
                             ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                '₱${(item.priceCents / 100).toStringAsFixed(2)}',
+                                style: TextStyle(
+                                  fontSize: priceFontSize,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            if (item.description != null && item.description!.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                item.description!,
+                                style: TextStyle(
+                                  fontSize: descFontSize,
+                                  color: AppColors.textSecondary,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  );
+                },
               ),
               const Divider(height: 1),
               

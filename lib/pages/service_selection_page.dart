@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_colors.dart';
@@ -22,12 +23,14 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
   String? _userName;
   List<Map<String, dynamic>> _activeDeliveries = [];
   bool _loadingDeliveries = true;
+  RealtimeChannel? _deliveryChannel;
 
   @override
   void initState() {
     super.initState();
     _loadUserName();
     _loadActiveDeliveries();
+    _setupRealtimeSubscription();
   }
 
   @override
@@ -36,6 +39,41 @@ class _ServiceSelectionPageState extends State<ServiceSelectionPage> {
     if (mounted) {
       _loadActiveDeliveries();
     }
+  }
+
+  void _setupRealtimeSubscription() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    // Subscribe to changes in the deliveries table for the current user
+    _deliveryChannel = Supabase.instance.client
+        .channel('public:deliveries:customer_id=eq.${user.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'deliveries',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'customer_id',
+            value: user.id,
+          ),
+          callback: (payload) {
+            debugPrint('🔔 Real-time delivery update received: ${payload.eventType}');
+            // Reload deliveries when any change occurs
+            if (mounted) {
+              _loadActiveDeliveries();
+            }
+          },
+        )
+        .subscribe();
+
+    debugPrint('📡 Real-time subscription set up for deliveries');
+  }
+
+  @override
+  void dispose() {
+    _deliveryChannel?.unsubscribe();
+    super.dispose();
   }
 
   Future<void> _loadUserName() async {
