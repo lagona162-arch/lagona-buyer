@@ -901,14 +901,33 @@ class SupabaseService {
       
       
       
-      final riders = await _client
+      // Query riders - check for available status OR online status
+      // Use separate queries and combine results for better reliability
+      final availableRiders = await _client
           .from('riders')
-          .select('id, latitude, longitude, status, last_active')
+          .select('id, latitude, longitude, status, last_active, is_online')
           .eq('status', 'available')
           .not('latitude', 'is', null)
           .not('longitude', 'is', null);
+      
+      final onlineRiders = await _client
+          .from('riders')
+          .select('id, latitude, longitude, status, last_active, is_online')
+          .eq('is_online', true)
+          .not('latitude', 'is', null)
+          .not('longitude', 'is', null);
+      
+      // Combine and deduplicate by rider ID
+      final Map<String, Map<String, dynamic>> ridersMap = {};
+      for (final rider in availableRiders) {
+        ridersMap[rider['id'] as String] = rider;
+      }
+      for (final rider in onlineRiders) {
+        ridersMap[rider['id'] as String] = rider;
+      }
+      final riders = ridersMap.values.toList();
 
-      debugPrint('Found ${riders.length} available riders');
+      debugPrint('Found ${riders.length} available/online riders');
 
       
       final now = DateTime.now();
@@ -918,20 +937,30 @@ class SupabaseService {
         final riderLat = rider['latitude'] as double?;
         final riderLng = rider['longitude'] as double?;
         final lastActive = rider['last_active'] as String?;
+        final isOnline = rider['is_online'] as bool? ?? false;
+        final status = rider['status'] as String? ?? '';
 
         if (riderLat == null || riderLng == null) continue;
 
-        
-        if (lastActive != null) {
-          final lastActiveTime = DateTime.parse(lastActive);
-          final timeSinceActive = now.difference(lastActiveTime);
-          if (timeSinceActive.inMinutes > 15) {
-            continue; 
+        // If rider is online, skip the last_active check (they're actively using the app)
+        // Otherwise, check if they were active within the last 30 minutes (more lenient)
+        if (!isOnline && lastActive != null) {
+          try {
+            final lastActiveTime = DateTime.parse(lastActive);
+            final timeSinceActive = now.difference(lastActiveTime);
+            if (timeSinceActive.inMinutes > 30) {
+              debugPrint('Skipping rider ${rider['id']}: inactive for ${timeSinceActive.inMinutes} minutes');
+              continue; 
+            }
+          } catch (e) {
+            debugPrint('Error parsing last_active for rider ${rider['id']}: $e');
+            // Continue with this rider if we can't parse the date
           }
         }
 
         
         final distance = _calculateDistance(latitude, longitude, riderLat, riderLng);
+        debugPrint('Rider ${rider['id']}: distance = ${distance.toStringAsFixed(2)} km, status = $status, online = $isOnline');
         
         if (distance <= radiusKm) {
           recentRiders.add({
@@ -940,6 +969,8 @@ class SupabaseService {
             'longitude': riderLng,
             'distance': distance,
           });
+        } else {
+          debugPrint('Rider ${rider['id']} is outside radius: ${distance.toStringAsFixed(2)} km > $radiusKm km');
         }
       }
 

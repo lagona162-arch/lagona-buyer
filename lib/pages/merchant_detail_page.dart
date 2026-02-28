@@ -807,13 +807,17 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item.name,
-                      style: const TextStyle(
-                        fontSize: 18,
+                      item.name.length > 40 
+                          ? '${item.name.substring(0, 40)}...'
+                          : item.name,
+                      style: TextStyle(
+                        fontSize: item.name.length > 30 ? 16 : 18,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textPrimary,
                         letterSpacing: 0.3,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     if (item.description != null && item.description!.isNotEmpty) ...[
                       const SizedBox(height: 6),
@@ -1395,29 +1399,61 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              item.name,
-                              style: TextStyle(
-                                fontSize: titleFontSize,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                '₱${(item.priceCents / 100).toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  fontSize: priceFontSize,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                            // Product name and price in the same row
+                            Builder(
+                              builder: (context) {
+                                // Character limit for product name
+                                const int maxChars = 50;
+                                final displayName = item.name.length > maxChars 
+                                    ? '${item.name.substring(0, maxChars)}...'
+                                    : item.name;
+                                
+                                // Determine font size based on name length
+                                // Smaller font if name is long, but not too small
+                                final nameLength = item.name.length;
+                                final adaptiveFontSize = nameLength > 30
+                                    ? (screenWidth < 360 ? 16.0 : 18.0)  // Smaller for long names
+                                    : titleFontSize;  // Normal size for short names
+                                
+                                return Wrap(
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 8,
+                                  runSpacing: 4,
+                                  children: [
+                                    // Use ConstrainedBox instead of Flexible for Wrap widget
+                                    ConstrainedBox(
+                                      constraints: BoxConstraints(
+                                        maxWidth: screenWidth * 0.6, // Limit width to 60% of screen
+                                      ),
+                                      child: Text(
+                                        displayName,
+                                        style: TextStyle(
+                                          fontSize: adaptiveFontSize,
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.textPrimary,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary,
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        '₱${(item.priceCents / 100).toStringAsFixed(2)}',
+                                        style: TextStyle(
+                                          fontSize: priceFontSize,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
                             ),
                             if (item.description != null && item.description!.isNotEmpty) ...[
                               const SizedBox(height: 12),
@@ -1669,6 +1705,8 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                         Future.delayed(const Duration(milliseconds: 100), () {
                           if (!mounted) return;
                           final messenger = ScaffoldMessenger.of(context);
+                          // Clear any existing snackbars first
+                          messenger.clearSnackBars();
                           messenger.showSnackBar(
                         SnackBar(
                           content: Text(
@@ -1681,7 +1719,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          duration: const Duration(seconds: 2),
+                          duration: const Duration(seconds: 3),
                           action: _cartService.itemCount > 0
                               ? SnackBarAction(
                                   label: 'View Cart',
@@ -1690,6 +1728,7 @@ class _MerchantDetailPageState extends State<MerchantDetailPage>
                                         // Use the global navigator key to avoid deactivated widget context issues
                                         final navigator = BuyerApp.navigatorKey.currentState;
                                         if (navigator != null) {
+                                          messenger.hideCurrentSnackBar();
                                           navigator.pushNamed(CartPage.routeName);
                                         }
                                   },

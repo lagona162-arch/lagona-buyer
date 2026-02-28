@@ -62,7 +62,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
   
   // UI state
   bool _isLoading = false;
-  int _activeStep = 0; // 0: Pickup & Photo, 1: Dropoff, 2: Confirmation
+  int _activeStep = 0; // 0: Photo & Details, 1: Pickup Location, 2: Dropoff Location, 3: Confirmation
   double? _deliveryFee;
   double? _distance;
   
@@ -555,13 +555,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
     }
   }
   
-  Widget _buildPickupAndPhotoStep() {
-    if (!_pickupLocationInitialized && _activeStep == 0) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _initializePickupLocation();
-      });
-    }
-    
+  Widget _buildPhotoAndDetailsStep() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Form(
@@ -570,12 +564,21 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Parcel Photo & Pickup Details',
+              'Parcel Photo & Details',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
               'Make sure that your parcel fits on a motorcycle',
+              style: TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Take a photo and provide details about your parcel',
               style: TextStyle(
                 fontSize: 14,
                 color: AppColors.textSecondary,
@@ -626,14 +629,114 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
             const Divider(),
             const SizedBox(height: 16),
             
-            // Pickup Location Section
+            // Package Details
             const Text(
-              'Pickup Location',
+              'Package Details',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _itemDetailsController,
+              decoration: const InputDecoration(
+                labelText: 'Details of Item *',
+                hintText: 'Describe the item being sent',
+                prefixIcon: Icon(Icons.inventory_2),
+              ),
+              validator: (value) =>
+                  value?.trim().isEmpty ?? true ? 'Item details are required' : null,
+              maxLines: 2,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _itemWeightController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+              ],
+              decoration: const InputDecoration(
+                labelText: 'Weight (kg)',
+                hintText: 'e.g., 1.5',
+                prefixIcon: Icon(Icons.scale),
+              ),
+              validator: (value) {
+  if (value == null || value.trim().isEmpty) {
+    return null; // ✅ optional
+  }
+
+  final weight = double.tryParse(value.trim());
+  if (weight == null || weight <= 0) {
+    return 'Please enter a valid weight';
+  }
+
+  return null;
+},
+
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _itemQuantityController,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Quantity *',
+                hintText: 'e.g., 1',
+                prefixIcon: Icon(Icons.numbers),
+              ),
+              validator: (value) {
+                if (value?.trim().isEmpty ?? true) return 'Quantity is required';
+                final quantity = int.tryParse(value!.trim());
+                if (quantity == null || quantity <= 0) return 'Please enter a valid quantity';
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+            CheckboxListTile(
+              title: const Text('Thermal Bag'),
+              subtitle: const Text('Keep items cool/warm during delivery'),
+              value: _needsThermalBag,
+              onChanged: (value) => setState(() => _needsThermalBag = value ?? false),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              title: const Text('Abono (Cash on Delivery)'),
+              subtitle: const Text('Additional ₱55.00 fee'),
+              value: _needsAbono,
+              onChanged: (value) {
+                setState(() {
+                  _needsAbono = value ?? false;
+                  _calculateDeliveryFee();
+                });
+              },
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPickupLocationStep() {
+    if (!_pickupLocationInitialized && _activeStep == 1) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _initializePickupLocation();
+      });
+    }
+    
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Pickup Location (Sender)',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
-              'Your current location is automatically detected',
+              'Select where the parcel will be picked up',
               style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 16),
@@ -737,6 +840,11 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
             const SizedBox(height: 24),
             
             // Sender Details
+            const Text(
+              'Sender Information',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
             TextFormField(
               controller: _senderNameController,
               decoration: const InputDecoration(
@@ -767,92 +875,6 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                 prefixIcon: Icon(Icons.note),
               ),
               maxLines: 3,
-            ),
-            
-            const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 16),
-            
-            // Package Details
-            const Text(
-              'Package Details',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _itemDetailsController,
-              decoration: const InputDecoration(
-                labelText: 'Details of Item *',
-                hintText: 'Describe the item being sent',
-                prefixIcon: Icon(Icons.inventory_2),
-              ),
-              validator: (value) =>
-                  value?.trim().isEmpty ?? true ? 'Item details are required' : null,
-              maxLines: 2,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _itemWeightController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-              ],
-              decoration: const InputDecoration(
-                labelText: 'Weight (kg)',
-                hintText: 'e.g., 1.5',
-                prefixIcon: Icon(Icons.scale),
-              ),
-              validator: (value) {
-  if (value == null || value.trim().isEmpty) {
-    return null; // ✅ optional
-  }
-
-  final weight = double.tryParse(value.trim());
-  if (weight == null || weight <= 0) {
-    return 'Please enter a valid weight';
-  }
-
-  return null;
-},
-
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _itemQuantityController,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(
-                labelText: 'Quantity *',
-                hintText: 'e.g., 1',
-                prefixIcon: Icon(Icons.numbers),
-              ),
-              validator: (value) {
-                if (value?.trim().isEmpty ?? true) return 'Quantity is required';
-                final quantity = int.tryParse(value!.trim());
-                if (quantity == null || quantity <= 0) return 'Please enter a valid quantity';
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            CheckboxListTile(
-              title: const Text('Thermal Bag'),
-              subtitle: const Text('Keep items cool/warm during delivery'),
-              value: _needsThermalBag,
-              onChanged: (value) => setState(() => _needsThermalBag = value ?? false),
-              controlAffinity: ListTileControlAffinity.leading,
-            ),
-            const SizedBox(height: 8),
-            CheckboxListTile(
-              title: const Text('Abono (Cash on Delivery)'),
-              subtitle: const Text('Additional ₱55.00 fee'),
-              value: _needsAbono,
-              onChanged: (value) {
-                setState(() {
-                  _needsAbono = value ?? false;
-                  _calculateDeliveryFee();
-                });
-              },
-              controlAffinity: ListTileControlAffinity.leading,
             ),
           ],
         ),
@@ -1477,30 +1499,39 @@ Widget _buildLocationSelector({
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                _buildStepIndicator(0, 'Pickup'),
+                _buildStepIndicator(0, 'Details'),
                 Expanded(
                   child: Container(
                     height: 2,
                     color: _activeStep > 0 ? AppColors.primary : AppColors.border,
                   ),
                 ),
-                _buildStepIndicator(1, 'Dropoff'),
+                _buildStepIndicator(1, 'Pickup'),
                 Expanded(
                   child: Container(
                     height: 2,
                     color: _activeStep > 1 ? AppColors.primary : AppColors.border,
                   ),
                 ),
-                _buildStepIndicator(2, 'Confirm'),
+                _buildStepIndicator(2, 'Dropoff'),
+                Expanded(
+                  child: Container(
+                    height: 2,
+                    color: _activeStep > 2 ? AppColors.primary : AppColors.border,
+                  ),
+                ),
+                _buildStepIndicator(3, 'Confirm'),
               ],
             ),
           ),
           Expanded(
             child: _activeStep == 0
-                ? _buildPickupAndPhotoStep()
+                ? _buildPhotoAndDetailsStep()
                 : _activeStep == 1
-                    ? _buildDropoffStep()
-                    : _buildConfirmationStep(),
+                    ? _buildPickupLocationStep()
+                    : _activeStep == 2
+                        ? _buildDropoffStep()
+                        : _buildConfirmationStep(),
           ),
           Padding(
             padding: const EdgeInsets.all(16),
@@ -1519,7 +1550,7 @@ Widget _buildLocationSelector({
                     onPressed: _isLoading
                         ? null
                         : () {
-                            if (_activeStep < 2) {
+                            if (_activeStep < 3) {
                               if (_activeStep == 0) {
                                 if (_parcelPhoto == null) {
                                   ScaffoldMessenger.of(context).showSnackBar(
@@ -1531,6 +1562,19 @@ Widget _buildLocationSelector({
                                   setState(() => _activeStep++);
                                 }
                               } else if (_activeStep == 1) {
+                                if (_formKey.currentState?.validate() ?? false) {
+                                  if (_pickupLatLng == null || _pickupAddress == null || _pickupAddress!.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Please select a pickup location on the map'),
+                                        backgroundColor: AppColors.error,
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                  setState(() => _activeStep++);
+                                }
+                              } else if (_activeStep == 2) {
                                 if (_formKey.currentState?.validate() ?? false) {
                                   if (_dropoffLatLng == null || _dropoffAddress == null || _dropoffAddress!.isEmpty) {
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -1557,7 +1601,7 @@ Widget _buildLocationSelector({
                             width: 20,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : Text(_activeStep < 2 ? 'Next' : 'Confirm & Book'),
+                        : Text(_activeStep < 3 ? 'Next' : 'Confirm & Book'),
                   ),
                 ),
               ],
@@ -1587,11 +1631,58 @@ class _MapSelector extends StatefulWidget {
 class _MapSelectorState extends State<_MapSelector> {
   late LatLng _selectedPosition;
   GoogleMapController? _mapController;
+  bool _isFetchingLocation = false;
 
   @override
   void initState() {
     super.initState();
     _selectedPosition = widget.initialPosition;
+  }
+
+  Future<void> _fetchCurrentLocation() async {
+    setState(() => _isFetchingLocation = true);
+    try {
+      // Check location service and permissions
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception('Location services are disabled. Please enable location services.');
+      }
+      
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+          throw Exception('Location permission is required to fetch your current location.');
+        }
+      }
+      
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception('Location permission was permanently denied. Please enable it in settings.');
+      }
+      
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      final newPosition = LatLng(position.latitude, position.longitude);
+      setState(() {
+        _selectedPosition = newPosition;
+        _isFetchingLocation = false;
+      });
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLngZoom(newPosition, 16),
+      );
+    } catch (e) {
+      setState(() => _isFetchingLocation = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error fetching location: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -1608,11 +1699,16 @@ class _MapSelectorState extends State<_MapSelector> {
                 widget.isPickup ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
               ),
               draggable: true,
-              onDragEnd: (newPosition) => setState(() => _selectedPosition = newPosition),
+              onDragEnd: (newPosition) {
+                setState(() => _selectedPosition = newPosition);
+                _mapController?.animateCamera(
+                  CameraUpdate.newLatLng(newPosition),
+                );
+              },
             ),
           },
           myLocationEnabled: true,
-          myLocationButtonEnabled: true,
+          myLocationButtonEnabled: false,
           zoomControlsEnabled: false,
           zoomGesturesEnabled: true,
           scrollGesturesEnabled: true,
@@ -1633,6 +1729,36 @@ class _MapSelectorState extends State<_MapSelector> {
             ],
           ),
         ),
+        // Auto-fetch current location button (only for dropoff)
+        if (!widget.isPickup)
+          Positioned(
+            top: 100,
+            right: 16,
+            child: Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              elevation: 10,
+              shadowColor: Colors.black87,
+              child: InkWell(
+                onTap: _isFetchingLocation ? null : _fetchCurrentLocation,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey[700]!, width: 2.5),
+                  ),
+                  child: _isFetchingLocation
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.my_location, size: 28, color: Colors.black87),
+                ),
+              ),
+            ),
+          ),
         Positioned(
           bottom: 16,
           left: 16,
