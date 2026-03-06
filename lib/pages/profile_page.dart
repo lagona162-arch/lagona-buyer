@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_colors.dart';
 import '../services/supabase_service.dart';
+import '../services/cart_service.dart';
 import 'login_page.dart';
 import 'customer_registration_page.dart';
 import 'order_history_page.dart';
@@ -90,6 +91,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (confirm == true && mounted) {
       try {
         await Supabase.instance.client.auth.signOut();
+        CartService().clear();
         if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil(
             LoginPage.routeName,

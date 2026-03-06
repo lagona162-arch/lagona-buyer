@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_colors.dart';
 import '../services/supabase_service.dart';
+import '../services/cart_service.dart';
 import '../widgets/buyer_loading.dart';
 import '../utils/error_dialog.dart';
 import 'register_page.dart';
@@ -78,8 +79,8 @@ class _LoginPageState extends State<LoginPage> {
         
         final role = userData?['role'] as String?;
         if (role != 'customer') {
-          
           await Supabase.instance.client.auth.signOut();
+          CartService().clear();
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -90,8 +91,9 @@ class _LoginPageState extends State<LoginPage> {
           );
           return;
         }
+        CartService().clear();
       }
-      
+
       Navigator.of(context).pushReplacementNamed(ServiceSelectionPage.routeName);
     } catch (e) {
       if (!mounted) return;

@@ -17,6 +17,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final TextEditingController firstNameController = TextEditingController();
   final TextEditingController lastNameController = TextEditingController();
   final TextEditingController middleInitialController = TextEditingController();
+  final TextEditingController phoneController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -51,6 +52,23 @@ class _RegisterPageState extends State<RegisterPage> {
       return '$fieldName is required';
     }
     return null;
+  }
+
+  String? _validatePhoneNumber(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Phone number is required';
+    }
+    final cleaned = value.trim().replaceAll(RegExp(r'[\s\-\(\)\+]'), '');
+    final phPattern = RegExp(r'^09\d{9}$');
+    if (phPattern.hasMatch(cleaned)) return null;
+    if (cleaned.startsWith('639') && cleaned.length == 12) {
+      final converted = '0${cleaned.substring(2)}';
+      if (phPattern.hasMatch(converted)) {
+        phoneController.text = converted;
+        return null;
+      }
+    }
+    return 'Invalid phone number. Must be 11 digits starting with 09 (e.g., 09123456789)';
   }
 
   PasswordStrength _getPasswordStrength(String password) {
@@ -113,6 +131,7 @@ class _RegisterPageState extends State<RegisterPage> {
       final middleInitial = middleInitialController.text.trim().isNotEmpty 
             ? middleInitialController.text.trim().toUpperCase() 
           : null;
+      final phone = phoneController.text.trim().replaceAll(RegExp(r'[\s\-\(\)\+]'), '');
       
       debugPrint('✅ Registration data collected - will create auth account after customer registration');
       
@@ -129,6 +148,7 @@ class _RegisterPageState extends State<RegisterPage> {
             lastName: lastName,
             middleInitial: middleInitial,
             birthdate: selectedBirthdate,
+            phone: phone.isNotEmpty ? phone : null,
           ),
         ),
       );
@@ -171,6 +191,7 @@ class _RegisterPageState extends State<RegisterPage> {
     firstNameController.dispose();
     lastNameController.dispose();
     middleInitialController.dispose();
+    phoneController.dispose();
     emailController.dispose();
     passwordController.dispose();
     super.dispose();
@@ -341,6 +362,22 @@ class _RegisterPageState extends State<RegisterPage> {
                           helperStyle: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                         ),
                         validator: (value) => _validateRequired(value, 'Last name'),
+                      ),
+                      const SizedBox(height: 20),
+                      TextFormField(
+                        controller: phoneController,
+                        keyboardType: TextInputType.phone,
+                        textInputAction: TextInputAction.next,
+                        maxLength: 11,
+                        decoration: InputDecoration(
+                          labelText: 'Phone Number',
+                          hintText: '09XXXXXXXXX',
+                          prefixIcon: const Icon(Icons.phone_outlined, color: AppColors.textSecondary),
+                          helperText: 'Philippines: 11 digits starting with 09',
+                          helperStyle: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                          counterText: '',
+                        ),
+                        validator: _validatePhoneNumber,
                       ),
                       const SizedBox(height: 20),
                       InkWell(

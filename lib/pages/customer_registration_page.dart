@@ -20,6 +20,7 @@ class CustomerRegistrationPage extends StatefulWidget {
 	final String? lastName; // Last name for registration
 	final String? middleInitial; // Middle initial for registration
 	final DateTime? birthdate; // Birthdate for registration
+	final String? phone; // Phone number (from customer info step during sign up)
 	final bool isEditMode; // True if editing existing address, false for new registration
 	
 	const CustomerRegistrationPage({
@@ -31,6 +32,7 @@ class CustomerRegistrationPage extends StatefulWidget {
 		this.lastName,
 		this.middleInitial,
 		this.birthdate,
+		this.phone,
 		this.isEditMode = false,
 	});
 
@@ -394,7 +396,10 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 		// Use coordinates as fallback if address is still null
 		final address = selectedAddress ?? '${selectedLatLng!.latitude.toStringAsFixed(6)}, ${selectedLatLng!.longitude.toStringAsFixed(6)}';
 		
-		final phone = phoneController.text.trim().replaceAll(RegExp(r'[\s\-\(\)]'), '');
+		// Use phone from customer info step (sign up) or from form (edit mode)
+		final phone = (widget.phone != null && widget.phone!.trim().isNotEmpty)
+			? widget.phone!.trim().replaceAll(RegExp(r'[\s\-\(\)]'), '')
+			: phoneController.text.trim().replaceAll(RegExp(r'[\s\-\(\)]'), '');
 		
 		try {
 			if (widget.isEditMode) {
@@ -583,21 +588,24 @@ class _CustomerRegistrationPageState extends State<CustomerRegistrationPage> {
 							key: _formKey,
 							child: Column(
 								children: [
-								TextFormField(
-									controller: phoneController,
-									keyboardType: TextInputType.phone,
-									textInputAction: TextInputAction.next,
-									maxLength: 11, 
-									decoration: InputDecoration(
-										labelText: 'Phone Number',
-										hintText: '09XXXXXXXXX',
-										border: const OutlineInputBorder(),
-										helperText: 'Philippines: 11 digits starting with 09',
-										counterText: '', 
+								// Phone is collected on customer info step during sign up; only show here in edit mode
+								if (widget.isEditMode || widget.phone == null) ...[
+									TextFormField(
+										controller: phoneController,
+										keyboardType: TextInputType.phone,
+										textInputAction: TextInputAction.next,
+										maxLength: 11, 
+										decoration: InputDecoration(
+											labelText: 'Phone Number',
+											hintText: '09XXXXXXXXX',
+											border: const OutlineInputBorder(),
+											helperText: 'Philippines: 11 digits starting with 09',
+											counterText: '', 
+										),
+										validator: _validatePhoneNumber,
 									),
-									validator: _validatePhoneNumber,
-								),
-								const SizedBox(height: 12),
+									const SizedBox(height: 12),
+								],
 								// Address display field (read-only, shows selected address)
 								TextFormField(
 									controller: searchController,
