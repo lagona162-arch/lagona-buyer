@@ -125,7 +125,11 @@ class _OrderTrackingPageState extends State<OrderTrackingPage> {
         if (mounted) {
           setState(() {
             _isLoading = false;
-            _errorMessage = 'Delivery not found';
+            if (_delivery == null) {
+              _errorMessage = 'Delivery not found';
+            } else {
+              _errorMessage = null;
+            }
           });
         }
         return;

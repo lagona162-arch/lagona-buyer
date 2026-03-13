@@ -1159,7 +1159,7 @@ class SupabaseService {
       debugPrint('Error type: ${e.runtimeType}');
       debugPrint('Error message: $e');
       debugPrint('Stack trace: $stackTrace');
-      return null;
+      rethrow;
     }
   }
 
