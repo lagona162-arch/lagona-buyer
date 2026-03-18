@@ -30,6 +30,9 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 	Timer? _pollTimer;
 	Timer? _timeoutTimer;
 	Timer? _uiUpdateTimer; // Timer to update UI every second for countdown
+	RealtimeChannel? _acceptanceChannel;
+	String? _acceptanceRiderId;
+	bool _acceptanceIsPadala = false;
 	DateTime _startedAt = DateTime.now();
 	bool _isSearching = true;
 	bool _isWaitingForAcceptance = false;
@@ -94,6 +97,9 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 	}
 
 	void _startPollingForAcceptance(String riderId, bool isPadala) {
+		_acceptanceRiderId = riderId;
+		_acceptanceIsPadala = isPadala;
+		_subscribeToDeliveryAcceptance();
 		_pollTimer?.cancel();
 		_pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _pollForAcceptance(riderId, isPadala));
 		// Cancel existing timeout and start a new 2-minute timeout for acceptance
@@ -102,6 +108,7 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 		_startUIUpdateTimer(); // Ensure UI updates continue
 		_timeoutTimer = Timer(const Duration(minutes: 2), () {
 			if (mounted && _isWaitingForAcceptance) {
+				_unsubscribeAcceptance();
 				setState(() {
 					_isWaitingForAcceptance = false;
 					_isSearching = true;
@@ -115,6 +122,56 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 		});
 	}
 
+	void _subscribeToDeliveryAcceptance() {
+		_acceptanceChannel?.unsubscribe();
+		_acceptanceChannel = Supabase.instance.client
+			.channel('finding_rider:delivery:${widget.orderId}')
+			.onPostgresChanges(
+				event: PostgresChangeEvent.update,
+				schema: 'public',
+				table: 'deliveries',
+				filter: PostgresChangeFilter(
+					type: PostgresChangeFilterType.eq,
+					column: 'id',
+					value: widget.orderId,
+				),
+				callback: (payload) {
+					final newRecord = payload.newRecord;
+					final riderId = newRecord['rider_id']?.toString();
+					if (riderId != null && riderId == _acceptanceRiderId && mounted) {
+						_stopAll();
+						_unsubscribeAcceptance();
+						if (!mounted) return;
+						setState(() {
+							_isWaitingForAcceptance = false;
+							_statusText = 'Rider accepted! Starting tracking...';
+						});
+						Future<void>.delayed(const Duration(milliseconds: 400), () {
+							if (!mounted) return;
+							if (_acceptanceIsPadala) {
+								Navigator.of(context).pushReplacementNamed(
+									PadalaTrackingPage.routeName,
+									arguments: widget.orderId,
+								);
+							} else {
+								Navigator.of(context).pushReplacementNamed(
+									OrderTrackingPage.routeName,
+									arguments: widget.orderId,
+								);
+							}
+						});
+					}
+				},
+			)
+			.subscribe();
+	}
+
+	void _unsubscribeAcceptance() {
+		_acceptanceChannel?.unsubscribe();
+		_acceptanceChannel = null;
+		_acceptanceRiderId = null;
+	}
+
 	Future<void> _pollForAcceptance(String riderId, bool isPadala) async {
 		if (!mounted) return;
 		
@@ -126,17 +183,14 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 			
 			if (accepted) {
 				_stopAll();
+				_unsubscribeAcceptance();
 				if (!mounted) return;
-				
 				setState(() {
 					_isWaitingForAcceptance = false;
 					_statusText = 'Rider accepted! Starting tracking...';
 				});
-				
 				await Future<void>.delayed(const Duration(milliseconds: 400));
 				if (!mounted) return;
-				
-				// Navigate to appropriate tracking page
 				if (isPadala) {
 					Navigator.of(context).pushReplacementNamed(
 						PadalaTrackingPage.routeName,
@@ -285,6 +339,7 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 		_timeoutTimer?.cancel();
 		_uiUpdateTimer?.cancel();
 		_pulseController?.stop();
+		_unsubscribeAcceptance();
 	}
 
 	@override

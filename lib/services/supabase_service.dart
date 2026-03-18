@@ -901,33 +901,14 @@ class SupabaseService {
       
       
       
-      // Query riders - check for available status OR online status
-      // Use separate queries and combine results for better reliability
-      final availableRiders = await _client
+      final riders = await _client
           .from('riders')
-          .select('id, latitude, longitude, status, last_active, is_online')
+          .select('id, latitude, longitude, status, last_active')
           .eq('status', 'available')
           .not('latitude', 'is', null)
           .not('longitude', 'is', null);
-      
-      final onlineRiders = await _client
-          .from('riders')
-          .select('id, latitude, longitude, status, last_active, is_online')
-          .eq('is_online', true)
-          .not('latitude', 'is', null)
-          .not('longitude', 'is', null);
-      
-      // Combine and deduplicate by rider ID
-      final Map<String, Map<String, dynamic>> ridersMap = {};
-      for (final rider in availableRiders) {
-        ridersMap[rider['id'] as String] = rider;
-      }
-      for (final rider in onlineRiders) {
-        ridersMap[rider['id'] as String] = rider;
-      }
-      final riders = ridersMap.values.toList();
 
-      debugPrint('Found ${riders.length} available/online riders');
+      debugPrint('Found ${riders.length} available riders');
 
       
       final now = DateTime.now();
@@ -937,14 +918,12 @@ class SupabaseService {
         final riderLat = rider['latitude'] as double?;
         final riderLng = rider['longitude'] as double?;
         final lastActive = rider['last_active'] as String?;
-        final isOnline = rider['is_online'] as bool? ?? false;
         final status = rider['status'] as String? ?? '';
 
         if (riderLat == null || riderLng == null) continue;
 
-        // If rider is online, skip the last_active check (they're actively using the app)
-        // Otherwise, check if they were active within the last 30 minutes (more lenient)
-        if (!isOnline && lastActive != null) {
+        // Consider rider active if they were active within the last 30 minutes
+        if (lastActive != null) {
           try {
             final lastActiveTime = DateTime.parse(lastActive);
             final timeSinceActive = now.difference(lastActiveTime);
@@ -960,7 +939,7 @@ class SupabaseService {
 
         
         final distance = _calculateDistance(latitude, longitude, riderLat, riderLng);
-        debugPrint('Rider ${rider['id']}: distance = ${distance.toStringAsFixed(2)} km, status = $status, online = $isOnline');
+        debugPrint('Rider ${rider['id']}: distance = ${distance.toStringAsFixed(2)} km, status = $status');
         
         if (distance <= radiusKm) {
           recentRiders.add({
@@ -1724,7 +1703,6 @@ class SupabaseService {
     required String riderId,
   }) async {
     try {
-      // Check if rider is assigned to the delivery (this happens when rider accepts)
       final delivery = await _client
           .from('deliveries')
           .select('rider_id, status')
@@ -1732,10 +1710,9 @@ class SupabaseService {
           .maybeSingle();
 
       if (delivery == null) return false;
-      
-      // Rider is assigned if rider_id matches and status is 'accepted'
-      return delivery['rider_id'] == riderId && 
-             (delivery['status'] == 'accepted' || delivery['status'] == 'pending');
+
+      final assignedRiderId = delivery['rider_id']?.toString();
+      return assignedRiderId != null && assignedRiderId == riderId;
     } catch (e) {
       debugPrint('❌ Error checking delivery offer: $e');
       return false;
