@@ -213,6 +213,8 @@ class _CartPageState extends State<CartPage> {
                       fontWeight: FontWeight.w600,
                       color: AppColors.textPrimary,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   if (cartItem.description != null && cartItem.description!.isNotEmpty) ...[
                     const SizedBox(height: 4),
@@ -247,6 +249,8 @@ class _CartPageState extends State<CartPage> {
                                   color: AppColors.textSecondary,
                                   fontStyle: FontStyle.italic,
                                 ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             if (addon.priceCents > 0)

@@ -990,6 +990,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                                   fontWeight: FontWeight.w600,
                                                 color: AppColors.textPrimary,
                                               ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
                                           Text(
@@ -1018,6 +1020,8 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                                     color: AppColors.textSecondary,
                                                     fontStyle: FontStyle.italic,
                                                   ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
                                                 ),
                                               ),
                                               Text(

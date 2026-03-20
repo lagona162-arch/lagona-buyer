@@ -35,10 +35,80 @@ class _MerchantListPageState extends State<MerchantListPage> {
   Position? _userPosition;
   List<Merchant> _sortedMerchants = [];
 
+  // Example address formats:
+  // - "P2WP+F7F Caloocan, Metro Manila"
+  // - "P2WP+F7F" (plus-code only, no locality text)
+  // We extract a locality "key" from the portion after the plus code.
+  String? _extractLocalityKey(String? address) {
+    final raw = (address ?? '').trim();
+    if (raw.isEmpty) return null;
+
+    // Strip leading Plus Code and keep the remainder (usually the locality text).
+    final plusCodeMatch = RegExp(
+      r'^[0-9A-Z]{2,8}\+[0-9A-Z]{2,4}\s*(.*)$',
+      caseSensitive: false,
+    ).firstMatch(raw);
+
+    if (plusCodeMatch == null) return null;
+
+    final remainder = (plusCodeMatch.group(1) ?? '').trim();
+    if (remainder.isEmpty) return null;
+
+    // Normalize to the first component before the first comma.
+    final parts = remainder
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return null;
+    return parts.first.toLowerCase();
+  }
+
+  Future<String?> _getCustomerLocalityKey() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return null;
+
+    try {
+      // "customers" holds the address + lat/lng used for profile completeness.
+      final customer = await Supabase.instance.client
+          .from('customers')
+          .select('address')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      final customerAddress = customer?['address'] as String?;
+      return _extractLocalityKey(customerAddress);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<Merchant>> _getMerchantsForCustomerLocality() async {
+    final merchants = await _service.getMerchants();
+    final customerLocalityKey = await _getCustomerLocalityKey();
+
+    // If we can't determine locality for the customer yet, don't block merchant browsing.
+    if (customerLocalityKey == null || customerLocalityKey.isEmpty) {
+      return merchants;
+    }
+
+    // If merchants don't have locality embedded in `address`, we can't reliably filter.
+    final merchantsWithLocalityKey = merchants.where((m) => _extractLocalityKey(m.address) != null).toList();
+    if (merchantsWithLocalityKey.isEmpty) {
+      return merchants;
+    }
+
+    final filtered = merchantsWithLocalityKey
+        .where((m) => _extractLocalityKey(m.address) == customerLocalityKey)
+        .toList();
+
+    return filtered;
+  }
+
   @override
   void initState() {
     super.initState();
-    _future = _service.getMerchants();
+    _future = _getMerchantsForCustomerLocality();
     _profileCompleteFuture = _checkProfileComplete();
     _loadData();
     _getUserLocation();
@@ -709,7 +779,7 @@ class _MerchantListPageState extends State<MerchantListPage> {
           body: RefreshIndicator(
             onRefresh: () async {
               setState(() {
-                _future = _service.getMerchants();
+                _future = _getMerchantsForCustomerLocality();
                 _profileCompleteFuture = _checkProfileComplete();
                 _loadData();
                 _currentPage = 0; 

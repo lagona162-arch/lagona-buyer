@@ -1569,8 +1569,16 @@ class SupabaseService {
       if (deliveryNotes != null && deliveryNotes.isNotEmpty) {
         try {
           final padalaDetails = jsonDecode(deliveryNotes) as Map<String, dynamic>;
-          // Merge padala details into the main object
-          padala.addAll(padalaDetails);
+          // Merge padala details into the main object, but don't overwrite
+          // existing non-null columns (e.g., rider_id) with nulls from JSON.
+          for (final entry in padalaDetails.entries) {
+            final key = entry.key;
+            final incomingValue = entry.value;
+            final existingValue = padala[key];
+            if (existingValue == null && incomingValue != null) {
+              padala[key] = incomingValue;
+            }
+          }
         } catch (e) {
           debugPrint('⚠️ Error parsing Padala details from delivery_notes: $e');
         }
@@ -1586,7 +1594,9 @@ class SupabaseService {
         try {
           final rider = await _client
               .from('riders')
-              .select('id, latitude, longitude, current_address, last_active, status')
+              // Use all columns so we can display rider details (name/phone/plate)
+              // in addition to latitude/longitude.
+              .select('*')
               .eq('id', riderId)
               .maybeSingle();
 
@@ -1692,6 +1702,69 @@ class SupabaseService {
       debugPrint('❌ Error creating Padala delivery offer:');
       debugPrint('Error type: ${e.runtimeType}');
       debugPrint('Error message: $e');
+      debugPrint('Stack trace: $stackTrace');
+      rethrow;
+    }
+  }
+
+  /// Expire a specific pending padala delivery offer (prevents late acceptance)
+  Future<void> expirePadalaDeliveryOffer({
+    required String deliveryId,
+    required String riderId,
+  }) async {
+    try {
+      debugPrint('=== Expiring Padala Delivery Offer ===');
+      debugPrint('Delivery ID: $deliveryId');
+      debugPrint('Rider ID: $riderId');
+
+      await _client
+          .from('delivery_offers')
+          .update({
+            'status': 'expired',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('delivery_id', deliveryId)
+          .eq('rider_id', riderId)
+          .eq('status', 'pending');
+
+      debugPrint('✅ Padala delivery offer expired (pending -> expired)');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error expiring padala delivery offer: $e');
+      debugPrint('Stack trace: $stackTrace');
+      // Don't rethrow: timeout UX should keep working even if expiry fails.
+    }
+  }
+
+  /// Hard-delete a Padala (parcel delivery) booking/request.
+  /// This deletes the delivery row and any related offers/payments.
+  Future<void> deletePadalaDeliveryRequest({
+    required String deliveryId,
+  }) async {
+    try {
+      debugPrint('=== Deleting Padala Delivery Request ===');
+      debugPrint('Delivery ID: $deliveryId');
+
+      // Delete child rows first (in case you don't have ON DELETE CASCADE)
+      await _client
+          .from('delivery_offers')
+          .delete()
+          .eq('delivery_id', deliveryId);
+
+      await _client
+          .from('payments')
+          .delete()
+          .eq('delivery_id', deliveryId);
+
+      // Delete the delivery row itself
+      await _client
+          .from('deliveries')
+          .delete()
+          .eq('id', deliveryId)
+          .eq('type', 'parcel');
+
+      debugPrint('✅ Padala delivery request deleted');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error deleting Padala delivery request: $e');
       debugPrint('Stack trace: $stackTrace');
       rethrow;
     }

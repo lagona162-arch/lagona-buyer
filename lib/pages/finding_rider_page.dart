@@ -23,6 +23,7 @@ class FindingRiderPage extends StatefulWidget {
 class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerProviderStateMixin {
 	static const Duration pollInterval = Duration(seconds: 5);
 	static const Duration timeout = Duration(minutes: 5);
+	static const Duration padalaTimeout = Duration(minutes: 10);
 	static const double searchRadiusKm = 5.0;
 
 	final RiderSearchService _service = RiderSearchService();
@@ -39,6 +40,7 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 	String _statusText = 'Finding a rider nearby...';
 	LatLng? _userLatLng;
 	AnimationController? _pulseController;
+	Duration _timeoutDuration = timeout;
 
 	@override
 	void initState() {
@@ -52,6 +54,21 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 		final pos = await _getCurrentPosition();
 		if (!mounted) return;
 		setState(() => _userLatLng = LatLng(pos.latitude, pos.longitude));
+
+		// Padala requests should wait longer for a rider.
+		try {
+			final delivery = await _supabaseService.getDeliveryById(widget.orderId);
+			final type = delivery?['type']?.toString();
+			final nextTimeout = type == 'parcel' ? padalaTimeout : timeout;
+			if (mounted) {
+				setState(() => _timeoutDuration = nextTimeout);
+			} else {
+				_timeoutDuration = nextTimeout;
+			}
+		} catch (_) {
+			// Keep default timeout if delivery lookup fails.
+		}
+
 		_startPolling();
 		_startTimeout();
 	}
@@ -107,18 +124,28 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 		_startedAt = DateTime.now(); // Reset timer start time for acceptance wait
 		_startUIUpdateTimer(); // Ensure UI updates continue
 		_timeoutTimer = Timer(const Duration(minutes: 2), () {
-			if (mounted && _isWaitingForAcceptance) {
-				_unsubscribeAcceptance();
-				setState(() {
-					_isWaitingForAcceptance = false;
-					_isSearching = true;
-					_statusText = 'Rider did not respond. Searching for another rider...';
-					_startedAt = DateTime.now();
-				});
-				_pulseController?.repeat(reverse: true);
-				_startPolling();
-				_startTimeout();
+			if (!mounted || !_isWaitingForAcceptance) return;
+
+			final riderId = _acceptanceRiderId;
+			if (riderId != null) {
+				// Expire the offer in DB so the rider can't accept after this timeout.
+				_supabaseService
+					.expirePadalaDeliveryOffer(
+						deliveryId: widget.orderId,
+						riderId: riderId,
+					);
 			}
+
+			_unsubscribeAcceptance();
+			setState(() {
+				_isWaitingForAcceptance = false;
+				_isSearching = true;
+				_statusText = 'Rider did not respond. Searching for another rider...';
+				_startedAt = DateTime.now();
+			});
+			_pulseController?.repeat(reverse: true);
+			_startPolling();
+			_startTimeout();
 		});
 	}
 
@@ -210,7 +237,7 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 
 	void _startTimeout() {
 		_timeoutTimer?.cancel();
-		_timeoutTimer = Timer(timeout, _exhausted);
+		_timeoutTimer = Timer(_timeoutDuration, _exhausted);
 		_startUIUpdateTimer(); // Ensure UI updates continue
 	}
 
@@ -290,8 +317,38 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 			_isSearching = false;
 			_statusText = 'No rider available within 5 km.';
 		});
-
-		// Show dialog with retry and cancel options
+		
+		// If this is a Padala delivery, automatically hard-delete the request when timeout expires.
+		try {
+			final delivery = await _supabaseService.getDeliveryById(widget.orderId);
+			final type = delivery?['type']?.toString();
+			
+			if (type == 'parcel') {
+				await _supabaseService.deletePadalaDeliveryRequest(
+					deliveryId: widget.orderId,
+				);
+				
+				if (!mounted) return;
+				ScaffoldMessenger.of(context).showSnackBar(
+					const SnackBar(
+						content: Text('Padala request expired and was removed.'),
+						backgroundColor: Colors.orange,
+						duration: Duration(seconds: 4),
+					),
+				);
+				
+				Navigator.of(context).pushNamedAndRemoveUntil(
+					'/service-selection',
+					(route) => false,
+				);
+				return;
+			}
+		} catch (e) {
+			debugPrint('Error determining delivery type on timeout: $e');
+			// Fall through to dialog for non-Padala or if type lookup fails.
+		}
+		
+		// For non-Padala deliveries (or if type lookup fails), show dialog with retry and cancel options.
 		final action = await showDialog<String>(
 			context: context,
 			barrierDismissible: false,
@@ -429,10 +486,10 @@ class _FindingRiderPageState extends State<FindingRiderPage> with SingleTickerPr
 	@override
 	Widget build(BuildContext context) {
 		final elapsed = DateTime.now().difference(_startedAt);
-		// Use 2 minutes timeout when waiting for acceptance, 5 minutes when searching
+		// Use 2 minutes timeout when waiting for acceptance, longer timeout when searching.
 		final currentTimeout = _isWaitingForAcceptance 
 			? const Duration(minutes: 2) 
-			: timeout;
+			: _timeoutDuration;
 		final remaining = currentTimeout - elapsed;
 		// Ensure remaining time doesn't go negative
 		final displayRemaining = remaining.isNegative ? Duration.zero : remaining;

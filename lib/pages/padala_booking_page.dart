@@ -66,6 +66,20 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
   double? _deliveryFee;
   double? _distance;
   
+  // Shared scroll controller so we can keep the user at the top of the current step.
+  final ScrollController _stepScrollController = ScrollController();
+
+  void _setActiveStep(int step) {
+    FocusScope.of(context).unfocus(); // Prevent keyboard-driven auto-scroll.
+    setState(() => _activeStep = step);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_stepScrollController.hasClients) {
+        _stepScrollController.jumpTo(0);
+      }
+    });
+  }
+  
   @override
   void initState() {
     super.initState();
@@ -129,6 +143,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
     _itemQuantityController.dispose();
     _pickupMapController?.dispose();
     _dropoffMapController?.dispose();
+    _stepScrollController.dispose();
     super.dispose();
   }
   
@@ -452,7 +467,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
           duration: Duration(seconds: 3),
         ),
       );
-      setState(() => _activeStep = 1);
+      _setActiveStep(1);
       return;
     }
     
@@ -557,6 +572,8 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
   
   Widget _buildPhotoAndDetailsStep() {
     return SingleChildScrollView(
+      controller: _stepScrollController,
+      primary: false,
       padding: const EdgeInsets.all(16),
       child: Form(
         key: _formKey,
@@ -724,6 +741,8 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
     }
     
     return SingleChildScrollView(
+      controller: _stepScrollController,
+      primary: false,
       padding: const EdgeInsets.all(16),
       child: Form(
         key: _formKey,
@@ -884,6 +903,8 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
 
   Widget _buildDropoffStep() {
     return SingleChildScrollView(
+      controller: _stepScrollController,
+      primary: false,
       padding: const EdgeInsets.all(16),
       child: Form(
         key: _formKey,
@@ -1049,6 +1070,8 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
     }
     
     return SingleChildScrollView(
+      controller: _stepScrollController,
+      primary: false,
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1104,7 +1127,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton.icon(
-                        onPressed: () => setState(() => _activeStep = 0),
+                        onPressed: () => _setActiveStep(0),
                         icon: const Icon(Icons.edit_location, size: 16),
                         label: const Text('Edit'),
                       ),
@@ -1168,7 +1191,7 @@ class _PadalaBookingPageState extends State<PadalaBookingPage> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton.icon(
-                        onPressed: () => setState(() => _activeStep = 1),
+                        onPressed: () => _setActiveStep(1),
                         icon: const Icon(Icons.edit_location, size: 16),
                         label: const Text('Edit'),
                       ),
@@ -1486,7 +1509,7 @@ Widget _buildLocationSelector({
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
             if (_activeStep > 0) {
-              setState(() => _activeStep--);
+              _setActiveStep(_activeStep - 1);
             } else {
               Navigator.of(context).pushReplacementNamed(ServiceSelectionPage.routeName);
             }
@@ -1540,7 +1563,7 @@ Widget _buildLocationSelector({
                 if (_activeStep > 0)
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _isLoading ? null : () => setState(() => _activeStep--),
+                      onPressed: _isLoading ? null : () => _setActiveStep(_activeStep - 1),
                       child: const Text('Back'),
                     ),
                   ),
@@ -1559,7 +1582,7 @@ Widget _buildLocationSelector({
                                   return;
                                 }
                                 if (_formKey.currentState?.validate() ?? false) {
-                                  setState(() => _activeStep++);
+                                  _setActiveStep(_activeStep + 1);
                                 }
                               } else if (_activeStep == 1) {
                                 if (_formKey.currentState?.validate() ?? false) {
@@ -1572,7 +1595,7 @@ Widget _buildLocationSelector({
                                     );
                                     return;
                                   }
-                                  setState(() => _activeStep++);
+                                  _setActiveStep(_activeStep + 1);
                                 }
                               } else if (_activeStep == 2) {
                                 if (_formKey.currentState?.validate() ?? false) {
@@ -1588,7 +1611,7 @@ Widget _buildLocationSelector({
                                   if (_pickupLatLng != null && _dropoffLatLng != null) {
                                     _calculateDeliveryFee();
                                   }
-                                  setState(() => _activeStep++);
+                                  _setActiveStep(_activeStep + 1);
                                 }
                               }
                             } else {
@@ -1729,36 +1752,35 @@ class _MapSelectorState extends State<_MapSelector> {
             ],
           ),
         ),
-        // Auto-fetch current location button (only for dropoff)
-        if (!widget.isPickup)
-          Positioned(
-            top: 100,
-            right: 16,
-            child: Material(
-              color: Colors.white,
+        // Auto-fetch current location button (show for pickup and dropoff)
+        Positioned(
+          top: 100,
+          right: 16,
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            elevation: 10,
+            shadowColor: Colors.black87,
+            child: InkWell(
+              onTap: _isFetchingLocation ? null : _fetchCurrentLocation,
               borderRadius: BorderRadius.circular(8),
-              elevation: 10,
-              shadowColor: Colors.black87,
-              child: InkWell(
-                onTap: _isFetchingLocation ? null : _fetchCurrentLocation,
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey[700]!, width: 2.5),
-                  ),
-                  child: _isFetchingLocation
-                      ? const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.my_location, size: 28, color: Colors.black87),
+              child: Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey[700]!, width: 2.5),
                 ),
+                child: _isFetchingLocation
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.my_location, size: 28, color: Colors.black87),
               ),
             ),
           ),
+        ),
         Positioned(
           bottom: 16,
           left: 16,

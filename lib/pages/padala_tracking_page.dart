@@ -28,6 +28,9 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
   LatLng? _pickupLocation;
   LatLng? _dropoffLocation;
   LatLng? _riderLocation;
+  String? _riderName;
+  String? _riderContactNumber;
+  String? _riderPlateNumber;
   
   Timer? _updateTimer;
   bool _isLoading = true;
@@ -87,6 +90,10 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
         _padala = padala;
         _pickupLocation = LatLng(padala.pickupLatitude, padala.pickupLongitude);
         _dropoffLocation = LatLng(padala.dropoffLatitude, padala.dropoffLongitude);
+        _riderLocation = null;
+        _riderName = null;
+        _riderContactNumber = null;
+        _riderPlateNumber = null;
         
         // Get rider location if available
         if (padalaData['riders'] != null) {
@@ -96,6 +103,21 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
           if (riderLat != null && riderLng != null) {
             _riderLocation = LatLng(riderLat, riderLng);
           }
+          
+          _riderName = _extractRiderName(rider);
+          _riderContactNumber = _pickString(rider, const [
+            'phone',
+            'contact_number',
+            'mobile',
+            'gcash_number',
+          ]);
+          _riderPlateNumber = _pickString(rider, const [
+            'plate_number',
+            'plate',
+            'vehicle_plate',
+            'vehicleNumber',
+            'vehicle_no',
+          ]);
         }
         
         _isLoading = false;
@@ -243,6 +265,34 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
         return 'Delivery cancelled';
     }
   }
+
+  String? _pickString(Map<String, dynamic> map, List<String> keys) {
+    for (final key in keys) {
+      final value = map[key];
+      if (value == null) continue;
+      final str = value.toString().trim();
+      if (str.isEmpty || str.toLowerCase() == 'null') continue;
+      return str;
+    }
+    return null;
+  }
+
+  String? _extractRiderName(Map<String, dynamic> rider) {
+    final fullName = _pickString(rider, const [
+      'full_name',
+      'name',
+      'rider_name',
+    ]);
+    if (fullName != null) return fullName;
+
+    final first = _pickString(rider, const ['firstname', 'first_name']);
+    final last = _pickString(rider, const ['lastname', 'last_name']);
+
+    final firstTrim = first?.trim() ?? '';
+    final lastTrim = last?.trim() ?? '';
+    final combined = (firstTrim + (firstTrim.isNotEmpty && lastTrim.isNotEmpty ? ' ' : '') + lastTrim).trim();
+    return combined.isNotEmpty ? combined : null;
+  }
   
   Widget _buildStatusCard() {
     if (_padala == null) return const SizedBox.shrink();
@@ -296,6 +346,20 @@ class _PadalaTrackingPageState extends State<PadalaTrackingPage> {
             _buildInfoRow('Recipient', _padala!.recipientName),
             if (_padala!.packageDescription != null)
               _buildInfoRow('Package', _padala!.packageDescription!),
+            
+            if (_padala!.riderId != null &&
+                _padala!.status != PadalaStatus.pending &&
+                _padala!.status != PadalaStatus.cancelled) ...[
+              _buildInfoRow('Rider Name', _riderName ?? 'Not available'),
+              _buildInfoRow(
+                'Rider Contact',
+                _riderContactNumber ?? 'Not available',
+              ),
+              _buildInfoRow(
+                'Plate Number',
+                _riderPlateNumber ?? 'Not available',
+              ),
+            ],
             
             // Cancel button (only show if delivery can be cancelled)
             if (_padala!.status == PadalaStatus.pending ||

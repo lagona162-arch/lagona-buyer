@@ -68,12 +68,13 @@ class PadalaDelivery {
   });
   
   factory PadalaDelivery.fromMap(Map<String, dynamic> map) {
+    final riderIdVal = map['rider_id'] ?? map['riderId'] ?? map['riderID'];
     // Note: Padala details are stored in delivery_notes as JSON
     // The service layer should parse and merge them before calling this
     return PadalaDelivery(
       id: map['id'] as String,
       customerId: map['customer_id'] as String,
-      riderId: map['rider_id'] as String?,
+      riderId: riderIdVal?.toString(),
       status: _statusFromString(map['status'] as String? ?? 'pending'),
       createdAt: DateTime.parse(map['created_at'] as String),
       pickupAddress: map['pickup_address'] as String? ?? 'Unknown',
